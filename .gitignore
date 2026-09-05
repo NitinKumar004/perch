@@ -1,0 +1,10 @@
+.DS_Store
+/.build
+/Packages
+xcuserdata/
+*.xcodeproj
+DerivedData/
+.swiftpm/
+*.pem
+*.p8
+.env

@@ -30,6 +30,13 @@ public struct GitHubAPIClient: Sendable {
         self.auth = auth
     }
 
+    /// The HTTP transport, for other query files in this module to share.
+    var transport: any HTTPClient { http }
+
+    /// A currently-valid access token (refreshing if needed), shared by all
+    /// query files in this module.
+    func validToken() async throws -> String { try await auth.validAccessToken() }
+
     /// The latest Actions run for `branch`, or `nil` if the repo has none.
     public func latestBuild(owner: String, repo: String, branch: String) async throws -> BuildObservation? {
         let token = try await auth.validAccessToken()

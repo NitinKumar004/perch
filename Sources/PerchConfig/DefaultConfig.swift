@@ -8,12 +8,16 @@ public enum DefaultConfig {
             module: "github.builds",
             settings: ["repo": "NitinKumar004/perch", "branch": "main"]
         )
+        let prs = SlotBinding(
+            module: "github.prs",
+            settings: ["queue": "review-requested"]
+        )
         let clock = SlotBinding(module: "system.clock")
 
         return LayoutConfig(
             activePreset: "default",
             presets: [
-                "default": Preset(leftPill: builds, rightPill: clock, panel: [builds]),
+                "default": Preset(leftPill: builds, rightPill: prs, panel: [builds, prs]),
                 "minimal": Preset(leftPill: builds, rightPill: clock),
             ]
         )

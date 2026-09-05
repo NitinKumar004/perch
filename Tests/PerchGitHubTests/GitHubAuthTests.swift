@@ -169,3 +169,23 @@ private func runsJSON(status: String, conclusion: String?) -> String {
     let obs = try await client.latestBuild(owner: "o", repo: "r", branch: "main")
     #expect(obs == nil)
 }
+
+@Test func pullRequestCountReadsTotalCount() async throws {
+    let http = FakeHTTPClient([json(#"{"total_count":2,"incomplete_results":false,"items":[]}"#)])
+    let client = GitHubAPIClient(http: http, auth: connectedAuth())
+    let obs = try await client.pullRequestCount(queue: .reviewRequested, repo: nil, now: epoch)
+    #expect(obs.count == 2)
+    #expect(obs.observedAt == epoch)
+}
+
+@Test func pullRequestCountScopesToRepoInQuery() async throws {
+    let http = FakeHTTPClient([json(#"{"total_count":0,"items":[]}"#)])
+    let client = GitHubAPIClient(http: http, auth: connectedAuth())
+    _ = try await client.pullRequestCount(queue: .authored, repo: "acme/api", now: epoch)
+
+    let sent = await http.requests.first
+    let url = sent?.url.absoluteString ?? ""
+    #expect(url.contains("search/issues"))
+    #expect(url.contains("author:@me") || url.contains("author%3A@me") || url.contains("author"))
+    #expect(url.contains("acme/api") || url.contains("acme%2Fapi"))
+}

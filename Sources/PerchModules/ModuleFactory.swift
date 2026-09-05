@@ -28,6 +28,9 @@ public struct ModuleFactory: Sendable {
             return AnyNotchModule(GitHubBuildsModule(
                 client: apiClient, owner: parts[0], repo: parts[1], branch: branch))
 
+        case GitHubPRsModule.descriptor.id:
+            return AnyNotchModule(GitHubPRsModule(client: apiClient))
+
         case ClockModule.descriptor.id:
             return AnyNotchModule(ClockModule())
 

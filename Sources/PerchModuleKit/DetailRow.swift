@@ -50,10 +50,15 @@ public struct ModuleRender: Equatable, Sendable {
     public let detail: [DetailRow]
     /// An alert this update raises, if any (e.g. a build just turned red).
     public let alert: ModuleAlert?
+    /// A short line naming what this module is watching (e.g. the repo it's
+    /// scoped to, or the host it pings), shown under the panel row's title so
+    /// the user always knows the source.
+    public let contextLabel: String?
 
-    public init(pill: PillContent, detail: [DetailRow], alert: ModuleAlert? = nil) {
+    public init(pill: PillContent, detail: [DetailRow], alert: ModuleAlert? = nil, contextLabel: String? = nil) {
         self.pill = pill
         self.detail = detail
         self.alert = alert
+        self.contextLabel = contextLabel
     }
 }

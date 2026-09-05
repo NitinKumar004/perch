@@ -8,8 +8,17 @@ import PerchGitHub
 public struct PRState: Sendable, Equatable {
     public var count: Int
     public var items: [PRSummary]
+    /// The repo this is scoped to (nil = all repos) — so an empty result can
+    /// explain itself honestly.
+    public var repoScope: String?
 
-    public static let empty = PRState(count: 0, items: [])
+    public init(count: Int, items: [PRSummary], repoScope: String? = nil) {
+        self.count = count
+        self.items = items
+        self.repoScope = repoScope
+    }
+
+    public static let empty = PRState(count: 0, items: [], repoScope: nil)
 }
 
 /// Shows your pull-request review queue — the count of PRs waiting on your
@@ -50,7 +59,7 @@ public struct GitHubPRsModule: NotchModule {
                     do {
                         let observation = try await client.pullRequestList(queue: queue, repo: repo, now: clock.now())
                         print("[perch] pr poll \(key): \(observation.total)")
-                        let state = PRState(count: observation.total, items: observation.items)
+                        let state = PRState(count: observation.total, items: observation.items, repoScope: repo)
                         let accepted = await store.apply(state, forKey: key, version: observation.observedAt)
                         if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
                             continuation.yield(snapshot)
@@ -92,8 +101,23 @@ public struct GitHubPRsModule: NotchModule {
                 ?? "\(value.count) PR\(value.count == 1 ? "" : "s") waiting on you")
     }
 
+    public func contextLabel(_ context: ModuleContext) -> String? {
+        let scope = context.settings["repo"].flatMap { $0.isEmpty ? nil : $0 } ?? "all repos"
+        let which = (context.settings["queue"] == "author") ? "opened by me" : "my review"
+        return "\(scope) · \(which)"
+    }
+
     public func detail(for value: PRState) -> [DetailRow] {
         if value.items.isEmpty {
+            // Nothing to list. If scoped to a repo and empty, explain the most
+            // common cause honestly — a private repo Perch can't see yet.
+            if value.count == 0, let scope = value.repoScope {
+                return [DetailRow(
+                    id: "pr-none",
+                    title: "No matching PRs in \(scope)",
+                    subtitle: "If it's private, Perch needs access — sign in with a token or install the app on that repo.",
+                    tint: .neutral, symbolName: "questionmark.circle")]
+            }
             return value.count == 0 ? [] : [DetailRow(id: "pr-empty", title: "\(value.count) waiting", tint: .warning)]
         }
         return value.items.map { pr in

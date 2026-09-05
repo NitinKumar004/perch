@@ -31,12 +31,16 @@ public final class NotchViewModel {
 public struct PanelItem: Identifiable, Equatable, Sendable {
     public let id: String
     public let title: String
+    /// What this row is watching (repo, host, …), shown under the title.
+    public var subtitle: String?
     public var content: PillContent
     public var detail: [DetailRow]
 
-    public init(id: String, title: String, content: PillContent, detail: [DetailRow] = []) {
+    public init(id: String, title: String, subtitle: String? = nil,
+                content: PillContent, detail: [DetailRow] = []) {
         self.id = id
         self.title = title
+        self.subtitle = subtitle
         self.content = content
         self.detail = detail
     }

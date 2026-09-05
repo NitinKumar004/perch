@@ -72,6 +72,12 @@ public struct DeployModule: NotchModule {
         }
     }
 
+    public func contextLabel(_ context: ModuleContext) -> String? {
+        let urlString = context.settings["url"] ?? ""
+        guard !urlString.isEmpty, let host = URL(string: urlString)?.host else { return "no URL set" }
+        return host
+    }
+
     public func face(for value: HealthState, in slot: Slot) -> PillFace {
         switch value {
         case .healthy:

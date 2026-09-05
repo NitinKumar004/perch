@@ -34,9 +34,15 @@ public protocol NotchModule: Sendable {
     /// (a build turning red, a new review request). The shell dedups by the
     /// alert's `id`, so returning the same alert repeatedly fires it once.
     func notification(for value: State, previous: State?) -> ModuleAlert?
+
+    /// A short line naming what this module is watching (the repo, the URL host,
+    /// …), shown under the panel row title. Receives the same context (settings)
+    /// as `stream`, so it can name the configured repo/URL. Defaults to nil.
+    func contextLabel(_ context: ModuleContext) -> String?
 }
 
 public extension NotchModule {
     func detail(for value: State) -> [DetailRow] { [] }
     func notification(for value: State, previous: State?) -> ModuleAlert? { nil }
+    func contextLabel(_ context: ModuleContext) -> String? { nil }
 }

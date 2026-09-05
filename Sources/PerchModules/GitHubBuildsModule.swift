@@ -98,6 +98,10 @@ public struct GitHubBuildsModule: NotchModule {
         buildFace(for: value.state, in: slot)
     }
 
+    public func contextLabel(_ context: ModuleContext) -> String? {
+        "\(owner)/\(repo) · \(branch)"
+    }
+
     public func detail(for value: BuildInfo) -> [DetailRow] {
         guard value.state != .unknown, !value.url.isEmpty else { return [] }
         let bits = [value.branch, value.shortSHA, value.durationText].filter { !$0.isEmpty }

@@ -60,6 +60,7 @@ final class SlotBinder {
                 if let row = model.panelItems.firstIndex(where: { $0.id == id }) {
                     model.panelItems[row].content = render.pill
                     model.panelItems[row].detail = render.detail
+                    model.panelItems[row].subtitle = render.contextLabel
                 }
             }
         }

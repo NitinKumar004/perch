@@ -36,11 +36,19 @@ struct PanelView: View {
         VStack(spacing: 0) {
             ForEach(items) { item in
                 VStack(spacing: 0) {
-                    // Header: module name + its glanceable pill.
+                    // Header: module name (+ what it's watching) + its pill.
                     HStack(spacing: 10) {
-                        Text(item.title)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.85))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(item.title)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.85))
+                            if let subtitle = item.subtitle {
+                                Text(subtitle)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.white.opacity(0.45))
+                                    .lineLimit(1)
+                            }
+                        }
                         Spacer(minLength: 12)
                         PillView(item.content)
                     }

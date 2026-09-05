@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         binder?.cancelAll()
         model.leftPill = nil
         model.rightPill = nil
+        model.panelItems = []   // reset so re-applying never duplicates rows
 
         let config = configStore.load()
         guard let preset = config.current else { return }
@@ -146,6 +147,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Open the native settings window; saving persists the config and re-wires
     /// the notch immediately.
     @objc private func openSettings() {
+        // Close the notch drop-down first so it doesn't float over the window.
+        model.isPanelOpen = false
+        windowController?.setPanelOpen(false)
+
         let config = configStore.load()
         settingsWindow.show(config: config) { [weak self] edited in
             guard let self else { return }

@@ -15,34 +15,43 @@ public struct NotchRootView: View {
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
-            Group {
-                if let left = model.leftPill {
-                    PillView(left)
-                        .contentShape(Capsule())
-                        .onTapGesture { onActivate() }
-                        .transition(.opacity)
+        VStack(spacing: 8) {
+            HStack(spacing: 0) {
+                Group {
+                    if let left = model.leftPill {
+                        PillView(left)
+                            .contentShape(Capsule())
+                            .onTapGesture { onActivate() }
+                            .transition(.opacity)
+                    }
                 }
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
 
-            // The physical notch lives here — draw nothing, and let clicks pass
-            // straight through to the menu bar underneath.
-            Color.clear.frame(width: max(notchWidth, 12)).allowsHitTesting(false)
+                // The physical notch lives here — draw nothing, and let clicks
+                // pass straight through to the menu bar underneath.
+                Color.clear.frame(width: max(notchWidth, 12)).allowsHitTesting(false)
 
-            Group {
-                if let right = model.rightPill {
-                    PillView(right)
-                        .contentShape(Capsule())
-                        .onTapGesture { onActivate() }
-                        .transition(.opacity)
+                Group {
+                    if let right = model.rightPill {
+                        PillView(right)
+                            .contentShape(Capsule())
+                            .onTapGesture { onActivate() }
+                            .transition(.opacity)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 34)
+
+            if model.isPanelOpen {
+                PanelView(items: model.panelItems)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
         .padding(.horizontal, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(.easeInOut(duration: 0.2), value: model.leftPill)
         .animation(.easeInOut(duration: 0.2), value: model.rightPill)
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: model.isPanelOpen)
     }
 }

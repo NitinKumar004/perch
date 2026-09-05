@@ -14,5 +14,25 @@ public final class NotchViewModel {
     public var leftPill: PillContent?
     public var rightPill: PillContent?
 
+    /// The stacked rows shown in the drop-down panel, in config order. Each
+    /// carries the module's name alongside its rendered content so the panel can
+    /// label rows.
+    public var panelItems: [PanelItem] = []
+    /// Whether the drop-down panel is currently open.
+    public var isPanelOpen = false
+
     public init() {}
+}
+
+/// One labelled row in the panel.
+public struct PanelItem: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public var content: PillContent
+
+    public init(id: String, title: String, content: PillContent) {
+        self.id = id
+        self.title = title
+        self.content = content
+    }
 }

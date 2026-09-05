@@ -30,7 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installStatusItem()
 
         let controller = NotchWindowController(model: model, onActivate: { [weak self] in
-            self?.startConnect()
+            self?.handleActivate()
         })
         controller.show()
         windowController = controller
@@ -59,7 +59,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let right = preset.rightPill, let module = factory.makeModule(for: right) {
             binder.bind(module, to: .rightPill, settings: right.settings)
         }
+        for (index, binding) in preset.panel.enumerated() {
+            if let module = factory.makeModule(for: binding) {
+                binder.bindPanel(module, at: index, settings: binding.settings)
+            }
+        }
         self.binder = binder
+    }
+
+    /// A pill was clicked. If GitHub isn't connected yet, that's the priority —
+    /// start the connect flow. Otherwise toggle the detail panel.
+    private func handleActivate() {
+        Task {
+            if await !auth.isConnected() {
+                startConnect()
+            } else {
+                model.isPanelOpen.toggle()
+                windowController?.setPanelOpen(model.isPanelOpen)
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

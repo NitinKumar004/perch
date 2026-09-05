@@ -20,6 +20,14 @@ public struct PillFace: Equatable, Sendable {
     }
 }
 
+public extension ModuleDescriptor {
+    /// A neutral placeholder face used to seed a panel row before the module's
+    /// first real value arrives, so row ordering is stable.
+    var placeholderFace: PillFace {
+        PillFace(text: name, symbolName: nil, tint: .neutral, tooltip: summary)
+    }
+}
+
 /// A fully resolved thing to render: the module's `PillFace` plus the freshness
 /// the shell needs to style honestly (dim + "2m" when stale, a spinner when
 /// computing, and so on). This is the only type the shell consumes from a

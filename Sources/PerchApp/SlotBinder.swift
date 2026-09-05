@@ -30,7 +30,30 @@ final class SlotBinder {
                 switch slot {
                 case .leftPill:  model.leftPill = content
                 case .rightPill: model.rightPill = content
-                case .panel:     break // panel rendering arrives in a later phase
+                case .panel:     break
+                }
+            }
+        }
+        tasks.append(task)
+    }
+
+    /// Bind a module into the panel stack at `index`, labelled with its name.
+    /// Panel rows update independently as each module streams new content.
+    func bindPanel(_ module: AnyNotchModule, at index: Int, settings: [String: String] = [:]) {
+        let id = "\(module.descriptor.id)#\(index)"
+        let title = module.descriptor.name
+        let context = ModuleContext(clock: baseContext.clock, settings: settings)
+        let stream = module.pillStream(context, slot: .panel)
+
+        // Seed the row so ordering is stable before the first value arrives.
+        model.panelItems.append(PanelItem(
+            id: id, title: title,
+            content: PillContent(face: module.descriptor.placeholderFace, freshness: .unknown, asOf: Date())))
+
+        let task = Task { @MainActor [model] in
+            for await content in stream {
+                if let row = model.panelItems.firstIndex(where: { $0.id == id }) {
+                    model.panelItems[row].content = content
                 }
             }
         }

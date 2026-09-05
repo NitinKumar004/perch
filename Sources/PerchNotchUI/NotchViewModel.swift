@@ -26,15 +26,18 @@ public final class NotchViewModel {
     public init() {}
 }
 
-/// One labelled row in the panel.
+/// One module's section in the panel: a header (name + its pill) and the detail
+/// rows it contributes.
 public struct PanelItem: Identifiable, Equatable, Sendable {
     public let id: String
     public let title: String
     public var content: PillContent
+    public var detail: [DetailRow]
 
-    public init(id: String, title: String, content: PillContent) {
+    public init(id: String, title: String, content: PillContent, detail: [DetailRow] = []) {
         self.id = id
         self.title = title
         self.content = content
+        self.detail = detail
     }
 }

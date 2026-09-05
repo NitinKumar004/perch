@@ -4,15 +4,19 @@ import PerchModuleKit
 import PerchSync
 import PerchGitHub
 
-/// Shows your pull-request review queue on the notch — by default the count of
-/// PRs waiting on *your* review (the "2 waiting on you" signal). Configurable
-/// via settings: `queue` (review-requested | author) and an optional `repo`
-/// scope.
-///
-/// Same `NotchModule` contract as every other module, so it is automatically
-/// configurable and placeable once the config engine knows its id.
+/// PR-queue state: the count drives the pill, the list drives the panel.
+public struct PRState: Sendable, Equatable {
+    public var count: Int
+    public var items: [PRSummary]
+
+    public static let empty = PRState(count: 0, items: [])
+}
+
+/// Shows your pull-request review queue — the count of PRs waiting on your
+/// review on a pill, and the actual list (clickable) in the panel. Configurable
+/// via settings: `queue` (review-requested | author) and an optional `repo`.
 public struct GitHubPRsModule: NotchModule {
-    public typealias State = Int   // the count
+    public typealias State = PRState
 
     public static let descriptor = ModuleDescriptor(
         id: "github.prs",
@@ -28,27 +32,26 @@ public struct GitHubPRsModule: NotchModule {
         self.client = client
     }
 
-    public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<Int>> {
+    public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<PRState>> {
         let clock = context.clock
         let client = client
         let queue = PRQueue(rawValue: context.settings["queue"] ?? "") ?? .reviewRequested
-        let repo = context.settings["repo"]   // nil = across all accessible repos
+        let repo = context.settings["repo"]
 
         return AsyncStream { continuation in
-            let store = VersionedStore<String, Int>(clock: clock)
+            let store = VersionedStore<String, PRState>(clock: clock)
             let key = "\(queue.rawValue)#\(repo ?? "*")"
 
             let task = Task {
-                continuation.yield(Snapshot(value: 0, freshness: .unknown, asOf: clock.now()))
+                continuation.yield(Snapshot(value: .empty, freshness: .unknown, asOf: clock.now()))
 
                 while !Task.isCancelled {
                     var nextDelay: Double = 90
                     do {
-                        let observation = try await client.pullRequestCount(
-                            queue: queue, repo: repo, now: clock.now())
-                        print("[perch] pr poll \(key): \(observation.count)")
-                        let accepted = await store.apply(
-                            observation.count, forKey: key, version: observation.observedAt)
+                        let observation = try await client.pullRequestList(queue: queue, repo: repo, now: clock.now())
+                        print("[perch] pr poll \(key): \(observation.total)")
+                        let state = PRState(count: observation.total, items: observation.items)
+                        let accepted = await store.apply(state, forKey: key, version: observation.observedAt)
                         if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
                             continuation.yield(snapshot)
                         }
@@ -57,7 +60,7 @@ public struct GitHubPRsModule: NotchModule {
                         if let stale = await store.snapshot(forKey: key, ttl: 0) {
                             continuation.yield(stale)
                         } else {
-                            continuation.yield(Snapshot(value: 0, freshness: .error("\(error)"), asOf: clock.now()))
+                            continuation.yield(Snapshot(value: .empty, freshness: .error("\(error)"), asOf: clock.now()))
                         }
                         nextDelay = 15
                     }
@@ -69,12 +72,27 @@ public struct GitHubPRsModule: NotchModule {
         }
     }
 
-    public func face(for value: Int, in slot: Slot) -> PillFace {
-        if value == 0 {
+    public func face(for value: PRState, in slot: Slot) -> PillFace {
+        if value.count == 0 {
             return PillFace(text: "PR", symbolName: "checkmark.seal", tint: .neutral,
                             tooltip: "No PRs waiting on you")
         }
-        return PillFace(text: "\(value)", symbolName: "arrow.triangle.pull",
-                        tint: .warning, tooltip: "\(value) PR\(value == 1 ? "" : "s") waiting on your review")
+        return PillFace(text: "\(value.count)", symbolName: "arrow.triangle.pull",
+                        tint: .warning, tooltip: "\(value.count) PR\(value.count == 1 ? "" : "s") waiting on your review")
+    }
+
+    public func detail(for value: PRState) -> [DetailRow] {
+        if value.items.isEmpty {
+            return value.count == 0 ? [] : [DetailRow(id: "pr-empty", title: "\(value.count) waiting", tint: .warning)]
+        }
+        return value.items.map { pr in
+            DetailRow(
+                id: "pr-\(pr.repo)-\(pr.number)",
+                title: "#\(pr.number) \(pr.title)",
+                subtitle: pr.repo,
+                tint: .info,
+                symbolName: "arrow.triangle.pull",
+                url: pr.url)
+        }
     }
 }

@@ -24,12 +24,12 @@ final class SlotBinder {
     /// this placement (repo, branch, filters, …).
     func bind(_ module: AnyNotchModule, to slot: Slot, settings: [String: String] = [:]) {
         let context = ModuleContext(clock: baseContext.clock, settings: settings)
-        let stream = module.pillStream(context, slot: slot)
+        let stream = module.renderStream(context, slot: slot)
         let task = Task { @MainActor [model] in
-            for await content in stream {
+            for await render in stream {
                 switch slot {
-                case .leftPill:  model.leftPill = content
-                case .rightPill: model.rightPill = content
+                case .leftPill:  model.leftPill = render.pill
+                case .rightPill: model.rightPill = render.pill
                 case .panel:     break
                 }
             }
@@ -38,12 +38,13 @@ final class SlotBinder {
     }
 
     /// Bind a module into the panel stack at `index`, labelled with its name.
-    /// Panel rows update independently as each module streams new content.
+    /// Panel rows update independently as each module streams new content, and
+    /// carry both the header pill and the module's detail rows.
     func bindPanel(_ module: AnyNotchModule, at index: Int, settings: [String: String] = [:]) {
         let id = "\(module.descriptor.id)#\(index)"
         let title = module.descriptor.name
         let context = ModuleContext(clock: baseContext.clock, settings: settings)
-        let stream = module.pillStream(context, slot: .panel)
+        let stream = module.renderStream(context, slot: .panel)
 
         // Seed the row so ordering is stable before the first value arrives.
         model.panelItems.append(PanelItem(
@@ -51,9 +52,10 @@ final class SlotBinder {
             content: PillContent(face: module.descriptor.placeholderFace, freshness: .unknown, asOf: Date())))
 
         let task = Task { @MainActor [model] in
-            for await content in stream {
+            for await render in stream {
                 if let row = model.panelItems.firstIndex(where: { $0.id == id }) {
-                    model.panelItems[row].content = content
+                    model.panelItems[row].content = render.pill
+                    model.panelItems[row].detail = render.detail
                 }
             }
         }

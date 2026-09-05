@@ -7,18 +7,18 @@ import PerchCore
 /// — the erasure is where the SDK boundary is enforced.
 public struct AnyNotchModule: Sendable {
     public let descriptor: ModuleDescriptor
-    private let makeStream: @Sendable (ModuleContext, Slot) -> AsyncStream<PillContent>
+    private let makeStream: @Sendable (ModuleContext, Slot) -> AsyncStream<ModuleRender>
 
     public init<M: NotchModule>(_ module: M) {
         self.descriptor = M.descriptor
         self.makeStream = { context, slot in
-            AsyncStream<PillContent> { continuation in
+            AsyncStream<ModuleRender> { continuation in
                 let task = Task {
                     for await snapshot in module.stream(context) {
                         let face = module.face(for: snapshot.value, in: slot)
-                        continuation.yield(
-                            PillContent(face: face, freshness: snapshot.freshness, asOf: snapshot.asOf)
-                        )
+                        let pill = PillContent(face: face, freshness: snapshot.freshness, asOf: snapshot.asOf)
+                        let detail = module.detail(for: snapshot.value)
+                        continuation.yield(ModuleRender(pill: pill, detail: detail))
                     }
                     continuation.finish()
                 }
@@ -27,9 +27,9 @@ public struct AnyNotchModule: Sendable {
         }
     }
 
-    /// A stream of rendered pill content for the given slot. Cancelling the
+    /// A stream of rendered pill + detail for the given slot. Cancelling the
     /// consuming task tears down the module's underlying work.
-    public func pillStream(_ context: ModuleContext, slot: Slot) -> AsyncStream<PillContent> {
+    public func renderStream(_ context: ModuleContext, slot: Slot) -> AsyncStream<ModuleRender> {
         makeStream(context, slot)
     }
 }

@@ -28,9 +28,23 @@ import PerchModuleKit
 @Test func prsFaceGoesQuietAtZero() {
     let m = GitHubPRsModule(client: .init(auth: .init(
         flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore())))
-    #expect(m.face(for: 0, in: .rightPill).tint == .neutral)
-    #expect(m.face(for: 3, in: .rightPill).tint == .warning)
-    #expect(m.face(for: 3, in: .rightPill).text == "3")
+    #expect(m.face(for: PRState(count: 0, items: []), in: .rightPill).tint == .neutral)
+    #expect(m.face(for: PRState(count: 3, items: []), in: .rightPill).tint == .warning)
+    #expect(m.face(for: PRState(count: 3, items: []), in: .rightPill).text == "3")
+}
+
+@Test func prsDetailListsPRsWithLinks() {
+    let m = GitHubPRsModule(client: .init(auth: .init(
+        flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore())))
+    let state = PRState(count: 2, items: [
+        PRSummary(number: 2533, title: "ClickHouse billing", repo: "zopdev/zopnight", url: "https://github.com/zopdev/zopnight/pull/2533"),
+        PRSummary(number: 2716, title: "dep align", repo: "zopdev/zopnight", url: "https://github.com/zopdev/zopnight/pull/2716"),
+    ])
+    let rows = m.detail(for: state)
+    #expect(rows.count == 2)
+    #expect(rows[0].title == "#2533 ClickHouse billing")
+    #expect(rows[0].url == "https://github.com/zopdev/zopnight/pull/2533")
+    #expect(rows[0].subtitle == "zopdev/zopnight")
 }
 
 @Test func buildFaceColors() {

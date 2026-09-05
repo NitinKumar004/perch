@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import PerchCore
 import PerchModuleKit
 
@@ -34,15 +35,24 @@ struct PanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             ForEach(items) { item in
-                HStack(spacing: 10) {
-                    Text(item.title)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.75))
-                    Spacer(minLength: 12)
-                    PillView(item.content)
+                VStack(spacing: 0) {
+                    // Header: module name + its glanceable pill.
+                    HStack(spacing: 10) {
+                        Text(item.title)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.85))
+                        Spacer(minLength: 12)
+                        PillView(item.content)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 9)
+                    .padding(.bottom, item.detail.isEmpty ? 9 : 4)
+
+                    // Detail rows (clickable when they carry a URL).
+                    ForEach(item.detail) { row in
+                        detailRow(row)
+                    }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
                 Divider().overlay(.white.opacity(0.06))
             }
             if items.isEmpty {
@@ -62,6 +72,57 @@ struct PanelView: View {
                 .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.08)))
         )
         .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
+    }
+
+    @ViewBuilder
+    private func detailRow(_ row: DetailRow) -> some View {
+        let content = HStack(spacing: 9) {
+            if let symbol = row.symbolName {
+                Image(systemName: symbol)
+                    .font(.system(size: 11))
+                    .foregroundStyle(tintColor(row.tint))
+                    .frame(width: 16)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(row.title)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .lineLimit(1)
+                if let subtitle = row.subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
+            if row.url != nil {
+                Image(systemName: "arrow.up.right.square")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.4))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+
+        if let urlString = row.url, let url = URL(string: urlString) {
+            Button { NSWorkspace.shared.open(url) } label: { content }
+                .buttonStyle(.plain)
+        } else {
+            content
+        }
+    }
+
+    private func tintColor(_ tint: Tint) -> Color {
+        switch tint {
+        case .neutral:  return Color(white: 0.85)
+        case .good:     return Color(red: 0.25, green: 0.73, blue: 0.31)
+        case .warning:  return Color(red: 0.89, green: 0.70, blue: 0.25)
+        case .critical: return Color(red: 1.00, green: 0.42, blue: 0.37)
+        case .info:     return Color(red: 0.42, green: 0.71, blue: 1.00)
+        case .accent:   return Color(red: 0.72, green: 0.63, blue: 1.00)
+        }
     }
 
     private var footer: some View {

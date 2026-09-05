@@ -4,15 +4,26 @@ import PerchModuleKit
 import PerchSync
 import PerchGitHub
 
+/// The full state of a watched build — the pill needs only `.state`, the panel
+/// uses the rest (workflow, commit, duration, link).
+public struct BuildInfo: Sendable, Equatable {
+    public var state: BuildState
+    public var workflowName: String
+    public var branch: String
+    public var shortSHA: String
+    public var durationText: String
+    public var url: String
+
+    public static let unknown = BuildInfo(
+        state: .unknown, workflowName: "", branch: "", shortSHA: "", durationText: "", url: "")
+}
+
 /// The real build signal: polls a repo's latest GitHub Actions run and drives
-/// the notch pill. It routes every observation through the `VersionedStore`, so
-/// it inherits the exact accuracy guarantees the demo module was proving —
-/// ordering, and honest freshness.
-///
-/// It implements the same `NotchModule` contract as `FakeBuildModule`; the app
-/// swaps one for the other and nothing else changes.
+/// the notch pill, and contributes a detail row (workflow · commit · duration +
+/// open-run link) to the panel. Routes every observation through `VersionedStore`
+/// so it inherits the accuracy guarantees — ordering and honest freshness.
 public struct GitHubBuildsModule: NotchModule {
-    public typealias State = BuildState
+    public typealias State = BuildInfo
 
     public static let descriptor = ModuleDescriptor(
         id: "github.builds",
@@ -34,13 +45,13 @@ public struct GitHubBuildsModule: NotchModule {
         self.branch = branch
     }
 
-    public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<BuildState>> {
+    public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<BuildInfo>> {
         let clock = context.clock
         let client = client
         let (owner, repo, branch) = (owner, repo, branch)
 
         return AsyncStream { continuation in
-            let store = VersionedStore<String, BuildState>(clock: clock)
+            let store = VersionedStore<String, BuildInfo>(clock: clock)
             let key = "\(owner)/\(repo)@\(branch)"
 
             let task = Task {
@@ -50,28 +61,29 @@ public struct GitHubBuildsModule: NotchModule {
                     var nextDelay: Double = 60
                     do {
                         if let observation = try await client.latestBuild(owner: owner, repo: repo, branch: branch) {
-                            print("[perch] build poll \(key): \(observation.state) @ \(observation.updatedAt)")
-                            let state = Self.map(observation.state)
-                            let accepted = await store.apply(state, forKey: key, version: observation.updatedAt)
+                            let info = BuildInfo(
+                                state: Self.map(observation.state),
+                                workflowName: observation.workflowName,
+                                branch: observation.branch,
+                                shortSHA: observation.shortSHA,
+                                durationText: Self.formatDuration(observation.durationSeconds),
+                                url: observation.url)
+                            print("[perch] build poll \(key): \(info.state)")
+                            let accepted = await store.apply(info, forKey: key, version: observation.updatedAt)
                             if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
                                 continuation.yield(snapshot)
                             }
-                            // Poll fast while something is in flight, slowly when idle.
-                            nextDelay = (state == .running) ? 15 : 60
+                            nextDelay = (info.state == .running) ? 15 : 60
                         } else {
                             print("[perch] build poll \(key): no runs found")
                         }
                     } catch {
                         print("[perch] build poll \(key): error \(error)")
-                        // Be honest: show the last value as stale, or unknown/error
-                        // if we've never had one. Never a confident, wrong value.
                         if let stale = await store.snapshot(forKey: key, ttl: 0) {
                             continuation.yield(stale)
                         } else {
                             continuation.yield(Snapshot(value: .unknown, freshness: .error("\(error)"), asOf: clock.now()))
                         }
-                        // Recover quickly after a transient failure or a just-completed
-                        // GitHub connect, instead of waiting a full idle interval.
                         nextDelay = 8
                     }
                     try? await Task.sleep(for: .seconds(nextDelay))
@@ -82,8 +94,20 @@ public struct GitHubBuildsModule: NotchModule {
         }
     }
 
-    public func face(for value: BuildState, in slot: Slot) -> PillFace {
-        buildFace(for: value, in: slot)
+    public func face(for value: BuildInfo, in slot: Slot) -> PillFace {
+        buildFace(for: value.state, in: slot)
+    }
+
+    public func detail(for value: BuildInfo) -> [DetailRow] {
+        guard value.state != .unknown, !value.url.isEmpty else { return [] }
+        let bits = [value.branch, value.shortSHA, value.durationText].filter { !$0.isEmpty }
+        return [DetailRow(
+            id: "build",
+            title: value.workflowName.isEmpty ? "Latest run" : value.workflowName,
+            subtitle: bits.joined(separator: " · "),
+            tint: buildFace(for: value.state, in: .panel).tint,
+            symbolName: buildFace(for: value.state, in: .panel).symbolName,
+            url: value.url)]
     }
 
     private static func map(_ state: RunState) -> BuildState {
@@ -93,5 +117,11 @@ public struct GitHubBuildsModule: NotchModule {
         case .failing:            return .failing
         case .neutral, .unknown:  return .unknown
         }
+    }
+
+    private static func formatDuration(_ seconds: Int) -> String {
+        if seconds <= 0 { return "" }
+        if seconds < 60 { return "\(seconds)s" }
+        return "\(seconds / 60)m\(String(format: "%02ds", seconds % 60))"
     }
 }

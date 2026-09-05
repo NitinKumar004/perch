@@ -23,4 +23,13 @@ public protocol NotchModule: Sendable {
     /// Pure mapping from a state value to how the pill should look in `slot`.
     /// Called by the shell; must not have side effects.
     func face(for value: State, in slot: Slot) -> PillFace
+
+    /// Pure mapping from a state value to the detail rows shown in the panel.
+    /// Defaults to empty — a module only overrides this when it has more to show
+    /// than its pill (e.g. a build's commit + open-run link, or a PR list).
+    func detail(for value: State) -> [DetailRow]
+}
+
+public extension NotchModule {
+    func detail(for value: State) -> [DetailRow] { [] }
 }

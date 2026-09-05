@@ -11,11 +11,16 @@ public enum RunState: String, Sendable, Equatable {
 }
 
 /// One observation of a repo's latest build, stamped with GitHub's own
-/// `updated_at` — the version the accuracy engine orders by.
+/// `updated_at` — the version the accuracy engine orders by. Carries enough
+/// detail for the panel: the workflow name, branch, short SHA, and a run URL.
 public struct BuildObservation: Sendable, Equatable {
     public let state: RunState
     public let updatedAt: Date
     public let url: String
+    public let workflowName: String
+    public let branch: String
+    public let shortSHA: String
+    public let durationSeconds: Int
 }
 
 /// Authenticated read-only calls to the GitHub REST API. Every call asks
@@ -71,7 +76,16 @@ public struct GitHubAPIClient: Sendable {
             throw GitHubAuthError.decoding
         }
         guard let run = decoded.workflowRuns.first else { return nil }
-        return BuildObservation(state: run.runState, updatedAt: run.updatedAt, url: run.htmlUrl)
+        let duration = max(0, Int(run.updatedAt.timeIntervalSince(run.runStartedAt ?? run.updatedAt)))
+        return BuildObservation(
+            state: run.runState,
+            updatedAt: run.updatedAt,
+            url: run.htmlUrl,
+            workflowName: run.name ?? "workflow",
+            branch: run.headBranch ?? branch,
+            shortSHA: String((run.headSha ?? "").prefix(7)),
+            durationSeconds: duration
+        )
     }
 
     private static var decoder: JSONDecoder {
@@ -93,6 +107,10 @@ private struct Run: Decodable {
     let conclusion: String?
     let updatedAt: Date
     let htmlUrl: String
+    let name: String?
+    let headBranch: String?
+    let headSha: String?
+    let runStartedAt: Date?
 
     /// Collapse GitHub's two-field lifecycle into one `RunState`.
     var runState: RunState {

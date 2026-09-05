@@ -33,8 +33,8 @@ let package = Package(
         // (API queries + modules land on top of this.)
         .target(name: "PerchGitHub", dependencies: ["PerchCore"]),
 
-        // First-party modules (local Clock + a fake Build signal for the skeleton).
-        .target(name: "PerchModules", dependencies: ["PerchModuleKit", "PerchSync"]),
+        // First-party modules (local Clock, a demo Build, and the real GitHub build).
+        .target(name: "PerchModules", dependencies: ["PerchModuleKit", "PerchSync", "PerchGitHub"]),
 
         // The notch window + SwiftUI rendering of the declarative pill vocabulary.
         .target(name: "PerchNotchUI", dependencies: ["PerchModuleKit"]),

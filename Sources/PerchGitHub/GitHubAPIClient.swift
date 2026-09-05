@@ -1,0 +1,94 @@
+import Foundation
+
+/// How a build looks once we've classified GitHub's `status` + `conclusion`
+/// into something the UI cares about.
+public enum RunState: String, Sendable, Equatable {
+    case running
+    case passing
+    case failing
+    case neutral   // cancelled / skipped / manual — cost no signal either way
+    case unknown
+}
+
+/// One observation of a repo's latest build, stamped with GitHub's own
+/// `updated_at` — the version the accuracy engine orders by.
+public struct BuildObservation: Sendable, Equatable {
+    public let state: RunState
+    public let updatedAt: Date
+    public let url: String
+}
+
+/// Authenticated read-only calls to the GitHub REST API. Every call asks
+/// `GitHubAuth` for a valid token first (which refreshes silently as needed),
+/// so callers never think about auth.
+public struct GitHubAPIClient: Sendable {
+    private let http: any HTTPClient
+    private let auth: GitHubAuth
+
+    public init(http: any HTTPClient = URLSessionHTTPClient(), auth: GitHubAuth) {
+        self.http = http
+        self.auth = auth
+    }
+
+    /// The latest Actions run for `branch`, or `nil` if the repo has none.
+    public func latestBuild(owner: String, repo: String, branch: String) async throws -> BuildObservation? {
+        let token = try await auth.validAccessToken()
+        let path = "repos/\(owner)/\(repo)/actions/runs?branch=\(branch)&per_page=1"
+        let url = GitHubConfig.apiBaseURL.appendingPathComponent(path)
+
+        let request = HTTPRequest(
+            url: url,
+            method: "GET",
+            headers: [
+                "Authorization": "Bearer \(token)",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "Perch",
+            ]
+        )
+        let response = try await http.send(request)
+        guard (200..<300).contains(response.status) else {
+            throw GitHubAuthError.http(status: response.status)
+        }
+        guard let decoded = try? Self.decoder.decode(RunsResponse.self, from: response.body) else {
+            throw GitHubAuthError.decoding
+        }
+        guard let run = decoded.workflowRuns.first else { return nil }
+        return BuildObservation(state: run.runState, updatedAt: run.updatedAt, url: run.htmlUrl)
+    }
+
+    private static var decoder: JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
+}
+
+// MARK: - Wire shapes
+
+private struct RunsResponse: Decodable {
+    let workflowRuns: [Run]
+}
+
+private struct Run: Decodable {
+    let status: String?
+    let conclusion: String?
+    let updatedAt: Date
+    let htmlUrl: String
+
+    /// Collapse GitHub's two-field lifecycle into one `RunState`.
+    var runState: RunState {
+        guard status == "completed" else { return .running } // queued/in_progress/waiting/…
+        switch conclusion {
+        case "success":
+            return .passing
+        case "failure", "timed_out", "startup_failure":
+            return .failing
+        case "cancelled", "skipped", "neutral", "stale", "action_required":
+            return .neutral
+        default:
+            return .unknown
+        }
+    }
+}

@@ -124,3 +124,48 @@ private let epoch = Date(timeIntervalSince1970: 1_000_000)
         _ = try await auth.validAccessToken()
     }
 }
+
+// MARK: - API client classification
+
+private func connectedAuth() -> GitHubAuth {
+    let fresh = GitHubToken(accessToken: "t", refreshToken: nil,
+                            expiresAt: epoch.addingTimeInterval(999_999), refreshTokenExpiresAt: nil)
+    return GitHubAuth(flow: GitHubDeviceFlow(http: FakeHTTPClient([]), clientID: "cid"),
+                      store: InMemoryTokenStore(fresh), clock: TestClock(epoch))
+}
+
+private func runsJSON(status: String, conclusion: String?) -> String {
+    let concl = conclusion.map { "\"\($0)\"" } ?? "null"
+    return """
+    {"total_count":1,"workflow_runs":[{"id":1,"status":"\(status)","conclusion":\(concl),"updated_at":"2026-09-05T09:00:00Z","html_url":"https://github.com/o/r/actions/runs/1","run_number":1}]}
+    """
+}
+
+@Test func latestBuildClassifiesSuccessAsPassing() async throws {
+    let http = FakeHTTPClient([json(runsJSON(status: "completed", conclusion: "success"))])
+    let client = GitHubAPIClient(http: http, auth: connectedAuth())
+    let obs = try await client.latestBuild(owner: "o", repo: "r", branch: "main")
+    #expect(obs?.state == .passing)
+    #expect(obs?.url == "https://github.com/o/r/actions/runs/1")
+}
+
+@Test func latestBuildClassifiesInProgressAsRunning() async throws {
+    let http = FakeHTTPClient([json(runsJSON(status: "in_progress", conclusion: nil))])
+    let client = GitHubAPIClient(http: http, auth: connectedAuth())
+    let obs = try await client.latestBuild(owner: "o", repo: "r", branch: "main")
+    #expect(obs?.state == .running)
+}
+
+@Test func latestBuildClassifiesFailureAsFailing() async throws {
+    let http = FakeHTTPClient([json(runsJSON(status: "completed", conclusion: "failure"))])
+    let client = GitHubAPIClient(http: http, auth: connectedAuth())
+    let obs = try await client.latestBuild(owner: "o", repo: "r", branch: "main")
+    #expect(obs?.state == .failing)
+}
+
+@Test func latestBuildReturnsNilWhenNoRuns() async throws {
+    let http = FakeHTTPClient([json(#"{"total_count":0,"workflow_runs":[]}"#)])
+    let client = GitHubAPIClient(http: http, auth: connectedAuth())
+    let obs = try await client.latestBuild(owner: "o", repo: "r", branch: "main")
+    #expect(obs == nil)
+}

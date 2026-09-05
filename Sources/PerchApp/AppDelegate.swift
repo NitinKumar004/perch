@@ -3,48 +3,62 @@ import PerchCore
 import PerchModuleKit
 import PerchModules
 import PerchNotchUI
+import PerchGitHub
 
 /// The composition root: the one place that knows about every layer. It builds
-/// the module registry, applies the layout (which module goes in which slot),
-/// shows the notch window, and starts the data loop.
-///
-/// In the next phase the hard-coded slot assignment below is replaced by a
-/// validated `layout.json`; nothing else here changes.
+/// auth, the module registry, applies the layout (which module goes in which
+/// slot), shows the notch window, and starts the data loop.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = NotchViewModel()
     private var windowController: NotchWindowController?
     private var binder: SlotBinder?
     private var statusItem: NSStatusItem?
+    private var connectItem: NSMenuItem?
+
+    // GitHub auth is created once and shared by the API client.
+    private let auth = GitHubAuth(
+        flow: GitHubDeviceFlow(http: URLSessionHTTPClient()),
+        store: KeychainTokenStore()
+    )
+
+    // The repo the build pill watches. (Becomes user-configurable via layout.json.)
+    private let watchedRepo = (owner: "NitinKumar004", name: "perch", branch: "main")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installStatusItem()
 
-        // Everything the app can show, registered by id.
+        let client = GitHubAPIClient(auth: auth)
         let registry = ModuleRegistry([
-            AnyNotchModule(FakeBuildModule()),
+            AnyNotchModule(GitHubBuildsModule(client: client,
+                                              owner: watchedRepo.owner,
+                                              repo: watchedRepo.name,
+                                              branch: watchedRepo.branch)),
             AnyNotchModule(ClockModule()),
         ])
 
-        // Show the surface.
         let controller = NotchWindowController(model: model)
         controller.show()
         windowController = controller
 
-        // Wire the layout: build → left pill, clock → right pill.
+        // Layout: real build → left pill, clock → right pill.
         let binder = SlotBinder(model: model, context: ModuleContext())
-        if let build = registry.module(id: FakeBuildModule.descriptor.id) {
+        if let build = registry.module(id: GitHubBuildsModule.descriptor.id) {
             binder.bind(build, to: .leftPill)
         }
         if let clock = registry.module(id: ClockModule.descriptor.id) {
             binder.bind(clock, to: .rightPill)
         }
         self.binder = binder
+
+        refreshConnectItem()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         binder?.cancelAll()
     }
+
+    // MARK: - Menu
 
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -53,10 +67,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle: "Perch — notch HUD", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
+
+        let connect = NSMenuItem(title: "Connect GitHub…", action: #selector(connectGitHub), keyEquivalent: "")
+        connect.target = self
+        menu.addItem(connect)
+        connectItem = connect
+
+        menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Perch",
                      action: #selector(NSApplication.terminate(_:)),
                      keyEquivalent: "q")
         item.menu = menu
         statusItem = item
+    }
+
+    private func refreshConnectItem() {
+        Task {
+            let connected = await auth.isConnected()
+            connectItem?.title = connected ? "GitHub: connected ✓" : "Connect GitHub…"
+            connectItem?.isEnabled = !connected
+        }
+    }
+
+    /// Runs the device-flow login: shows the user their code, opens github.com,
+    /// and waits for them to authorize — then the build pill starts working on
+    /// its next poll (no restart needed).
+    @objc private func connectGitHub() {
+        Task {
+            do {
+                let code = try await auth.beginDeviceLogin()
+
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(code.userCode, forType: .string)
+                connectItem?.title = "Code \(code.userCode) copied — paste at github.com"
+                if let url = URL(string: code.verificationUri) {
+                    NSWorkspace.shared.open(url)
+                }
+
+                try await auth.awaitAuthorization(code)
+                connectItem?.title = "GitHub: connected ✓"
+                connectItem?.isEnabled = false
+            } catch {
+                connectItem?.title = "GitHub: connect failed — retry"
+            }
+        }
     }
 }

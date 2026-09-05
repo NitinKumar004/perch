@@ -1,4 +1,6 @@
 import Foundation
+import PerchCore
+import PerchModuleKit
 
 /// The state of a CI build, as a module would model it. Deliberately small and
 /// `Sendable` so it can flow across the concurrency boundary.
@@ -7,6 +9,21 @@ public enum BuildState: Sendable, Equatable {
     case running
     case passing
     case failing
+}
+
+/// The shared "how a build looks as a pill" mapping, used by both the demo and
+/// the real GitHub build module so a passing build always reads the same way.
+func buildFace(for value: BuildState, in slot: Slot) -> PillFace {
+    switch value {
+    case .unknown:
+        return PillFace(text: "CI", symbolName: "questionmark.circle", tint: .neutral, tooltip: "No build data yet")
+    case .running:
+        return PillFace(text: "CI", symbolName: "arrow.triangle.2.circlepath", tint: .info, tooltip: "Build running")
+    case .passing:
+        return PillFace(text: "CI", symbolName: "checkmark.circle.fill", tint: .good, tooltip: "Build passing")
+    case .failing:
+        return PillFace(text: "CI", symbolName: "xmark.circle.fill", tint: .critical, tooltip: "Build failing")
+    }
 }
 
 /// One observation of a build's state from a source, stamped with the source's

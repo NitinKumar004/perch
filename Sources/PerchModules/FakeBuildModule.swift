@@ -48,15 +48,6 @@ public struct FakeBuildModule: NotchModule {
     }
 
     public func face(for value: BuildState, in slot: Slot) -> PillFace {
-        switch value {
-        case .unknown:
-            return PillFace(text: "CI", symbolName: "questionmark.circle", tint: .neutral, tooltip: "No build data yet")
-        case .running:
-            return PillFace(text: "CI", symbolName: "arrow.triangle.2.circlepath", tint: .info, tooltip: "Build running")
-        case .passing:
-            return PillFace(text: "CI", symbolName: "checkmark.circle.fill", tint: .good, tooltip: "Build passing")
-        case .failing:
-            return PillFace(text: "CI", symbolName: "xmark.circle.fill", tint: .critical, tooltip: "Build failing")
-        }
+        buildFace(for: value, in: slot)
     }
 }

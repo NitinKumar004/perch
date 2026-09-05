@@ -29,6 +29,10 @@ let package = Package(
         // The accuracy engine: versioned last-write-wins + freshness.
         .target(name: "PerchSync", dependencies: ["PerchCore"]),
 
+        // GitHub integration: device-flow auth + Keychain token storage.
+        // (API queries + modules land on top of this.)
+        .target(name: "PerchGitHub", dependencies: ["PerchCore"]),
+
         // First-party modules (local Clock + a fake Build signal for the skeleton).
         .target(name: "PerchModules", dependencies: ["PerchModuleKit", "PerchSync"]),
 
@@ -44,5 +48,6 @@ let package = Package(
 
         .testTarget(name: "PerchCoreTests", dependencies: ["PerchCore"]),
         .testTarget(name: "PerchSyncTests", dependencies: ["PerchSync", "PerchCore"]),
+        .testTarget(name: "PerchGitHubTests", dependencies: ["PerchGitHub", "PerchCore"]),
     ]
 )

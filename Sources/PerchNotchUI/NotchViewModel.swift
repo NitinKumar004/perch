@@ -20,6 +20,8 @@ public final class NotchViewModel {
     public var panelItems: [PanelItem] = []
     /// Whether the drop-down panel is currently open.
     public var isPanelOpen = false
+    /// Whether GitHub is connected — drives the panel's "Connect" button.
+    public var isConnected = false
 
     public init() {}
 }

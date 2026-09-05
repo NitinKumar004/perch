@@ -7,11 +7,15 @@ public struct NotchRootView: View {
     @State private var model: NotchViewModel
     private let notchWidth: CGFloat
     private let onActivate: () -> Void
+    private let panelActions: PanelActions
 
-    public init(model: NotchViewModel, notchWidth: CGFloat, onActivate: @escaping () -> Void = {}) {
+    public init(model: NotchViewModel, notchWidth: CGFloat,
+                onActivate: @escaping () -> Void = {},
+                panelActions: PanelActions = PanelActions()) {
         self._model = State(initialValue: model)
         self.notchWidth = notchWidth
         self.onActivate = onActivate
+        self.panelActions = panelActions
     }
 
     public var body: some View {
@@ -44,7 +48,7 @@ public struct NotchRootView: View {
             .frame(height: 34)
 
             if model.isPanelOpen {
-                PanelView(items: model.panelItems)
+                PanelView(items: model.panelItems, isConnected: model.isConnected, actions: panelActions)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }

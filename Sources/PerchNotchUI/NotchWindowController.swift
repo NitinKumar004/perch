@@ -17,9 +17,14 @@ public final class NotchWindowController {
     private let frameX: CGFloat
     private let frameWidth: CGFloat
 
-    /// - Parameter onActivate: called when the user clicks a pill — used to
-    ///   open/close the panel or start the GitHub connect flow.
-    public init(model: NotchViewModel, onActivate: @escaping () -> Void = {}) {
+    /// - Parameters:
+    ///   - onActivate: called when the user clicks a pill — used to open/close
+    ///     the panel or start the GitHub connect flow.
+    ///   - panelActions: the controls (Settings/Reload/Quit/Connect) rendered in
+    ///     the panel footer, so everything is reachable from the notch.
+    public init(model: NotchViewModel,
+                onActivate: @escaping () -> Void = {},
+                panelActions: PanelActions = PanelActions()) {
         let screen = NSScreen.main ?? NSScreen.screens.first
         let metrics = screen.map(NotchGeometry.metrics(for:))
             ?? NotchMetrics(hasNotch: false, notchWidth: 0, notchHeight: 24,
@@ -50,7 +55,8 @@ public final class NotchWindowController {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         panel.ignoresMouseEvents = false
 
-        let root = NotchRootView(model: model, notchWidth: metrics.notchWidth, onActivate: onActivate)
+        let root = NotchRootView(model: model, notchWidth: metrics.notchWidth,
+                                 onActivate: onActivate, panelActions: panelActions)
         let hosting = NSHostingView(rootView: root)
         hosting.frame = panel.contentView?.bounds ?? contentRect
         hosting.autoresizingMask = [.width, .height]
@@ -61,13 +67,20 @@ public final class NotchWindowController {
     public func hide() { panel.orderOut(nil) }
 
     /// Grow/shrink the window as the panel opens/closes, keeping the top edge
-    /// pinned to the notch so the pills never move.
+    /// pinned to the notch so the pills never move. When open, the panel becomes
+    /// key so its footer buttons receive clicks; when closed it resigns so it
+    /// never steals focus while idle.
     public func setPanelOpen(_ open: Bool) {
         let height = open ? expandedHeight : collapsedHeight
         let frame = NSRect(x: frameX, y: topEdgeY - height, width: frameWidth, height: height)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.22
             panel.animator().setFrame(frame, display: true)
+        }
+        if open {
+            panel.makeKeyAndOrderFront(nil)
+        } else {
+            panel.resignKey()
         }
     }
 }

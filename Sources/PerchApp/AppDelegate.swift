@@ -30,9 +30,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         installStatusItem()
 
+        let actions = PanelActions(
+            onConnect: { [weak self] in self?.startConnect() },
+            onSettings: { [weak self] in self?.openSettings() },
+            onReload: { [weak self] in self?.applyConfig() },
+            onQuit: { NSApp.terminate(nil) }
+        )
         let controller = NotchWindowController(model: model, onActivate: { [weak self] in
             self?.handleActivate()
-        })
+        }, panelActions: actions)
         controller.show()
         windowController = controller
 
@@ -68,17 +74,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.binder = binder
     }
 
-    /// A pill was clicked. If GitHub isn't connected yet, that's the priority —
-    /// start the connect flow. Otherwise toggle the detail panel.
+    /// A pill was clicked: toggle the detail panel. The panel's own footer holds
+    /// Connect / Settings / Reload / Quit, so everything is reachable from the
+    /// notch without the menu-bar icon.
     private func handleActivate() {
-        Task {
-            if await !auth.isConnected() {
-                startConnect()
-            } else {
-                model.isPanelOpen.toggle()
-                windowController?.setPanelOpen(model.isPanelOpen)
-            }
-        }
+        model.isPanelOpen.toggle()
+        windowController?.setPanelOpen(model.isPanelOpen)
+        if model.isPanelOpen { refreshConnectedFlag() }
+    }
+
+    /// Keep the model's connected flag current so the panel shows Connect only
+    /// when needed.
+    private func refreshConnectedFlag() {
+        Task { model.isConnected = await auth.isConnected() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -149,6 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshConnectItem() {
         Task {
             let connected = await auth.isConnected()
+            model.isConnected = connected
             connectItem?.title = connected ? "GitHub: connected ✓" : "Connect GitHub…"
             connectItem?.isEnabled = !connected
         }
@@ -197,6 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
 
                 try await auth.awaitAuthorization(code)
+                model.isConnected = true
                 connectItem?.title = "GitHub: connected ✓"
                 connectItem?.isEnabled = false
             } catch {

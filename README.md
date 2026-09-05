@@ -1,5 +1,7 @@
 # Perch
 
+[![CI](https://github.com/NitinKumar004/perch/actions/workflows/ci.yml/badge.svg)](https://github.com/NitinKumar004/perch/actions/workflows/ci.yml)
+
 A modular, accuracy-first developer HUD for the MacBook notch. Glance up to know
 your build, PRs and deploys are fine — instead of tab-switching to find out.
 

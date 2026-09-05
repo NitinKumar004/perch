@@ -66,7 +66,15 @@ public struct GitHubPRsModule: NotchModule {
                         }
                     } catch {
                         print("[perch] pr poll \(key): error \(error)")
-                        if let stale = await store.snapshot(forKey: key, ttl: 0) {
+                        // A 4xx on a repo-scoped query means the current credential
+                        // can't see that repo — a private repo the GitHub App isn't
+                        // installed on (GitHub returns 422 for that). Show the honest
+                        // "needs access" hint instead of an error loop.
+                        if case GitHubAuthError.http(let status) = error,
+                           (400..<500).contains(status), let repo {
+                            let noAccess = PRState(count: 0, items: [], repoScope: repo)
+                            continuation.yield(Snapshot(value: noAccess, freshness: .unknown, asOf: clock.now()))
+                        } else if let stale = await store.snapshot(forKey: key, ttl: 0) {
                             continuation.yield(stale)
                         } else {
                             continuation.yield(Snapshot(value: .empty, freshness: .error("\(error)"), asOf: clock.now()))

@@ -13,6 +13,13 @@ public actor GitHubAuth {
     private let clock: any Clock
     private let refreshBuffer: TimeInterval
 
+    /// In-memory copy of the token so the Keychain is read at most once per
+    /// launch. Every poll asks for a token; without this cache each ask would
+    /// re-read the Keychain and re-trigger the OS access prompt. `loaded` guards
+    /// against caching a `nil` and re-hitting the Keychain forever.
+    private var cachedToken: GitHubToken?
+    private var loaded = false
+
     public init(
         flow: GitHubDeviceFlow,
         store: any TokenStore,
@@ -25,19 +32,36 @@ public actor GitHubAuth {
         self.refreshBuffer = refreshBuffer
     }
 
-    /// Whether a token is stored (i.e. the user has connected).
+    /// Read from the Keychain once, then serve the cached value.
+    private func currentToken() throws -> GitHubToken? {
+        if !loaded {
+            cachedToken = try store.load()
+            loaded = true
+        }
+        return cachedToken
+    }
+
+    /// Persist a token and update the in-memory cache together.
+    private func persist(_ token: GitHubToken) throws {
+        try store.save(token)
+        cachedToken = token
+        loaded = true
+    }
+
+    /// Whether a token is stored (i.e. the user has connected). Uses the cache.
     public func isConnected() -> Bool {
-        ((try? store.load()) ?? nil) != nil
+        ((try? currentToken()) ?? nil) != nil
     }
 
     /// A currently-valid access token, refreshing first if it's about to expire.
+    /// Reads the Keychain only on the first call; refresh re-saves + re-caches.
     public func validAccessToken() async throws -> String {
-        guard let token = try store.load() else { throw GitHubAuthError.notConnected }
+        guard let token = try currentToken() else { throw GitHubAuthError.notConnected }
 
         if token.isExpiring(within: refreshBuffer, now: clock.now()) {
             guard let refreshToken = token.refreshToken else { throw GitHubAuthError.cannotRefresh }
             let refreshed = try await flow.refresh(refreshToken: refreshToken, now: clock.now())
-            try store.save(refreshed)
+            try persist(refreshed)
             return refreshed.accessToken
         }
         return token.accessToken
@@ -64,7 +88,7 @@ public actor GitHubAuth {
             await sleep(interval)
             switch try await flow.poll(deviceCode: code.deviceCode, now: clock.now()) {
             case .authorized(let token):
-                try store.save(token)
+                try persist(token)
                 return
             case .pending:
                 continue
@@ -75,8 +99,10 @@ public actor GitHubAuth {
         throw GitHubAuthError.deviceCodeExpired
     }
 
-    /// Forget the stored token.
+    /// Forget the stored token, in the Keychain and in memory.
     public func signOut() throws {
         try store.clear()
+        cachedToken = nil
+        loaded = true
     }
 }

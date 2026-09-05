@@ -54,5 +54,6 @@ let package = Package(
         .testTarget(name: "PerchSyncTests", dependencies: ["PerchSync", "PerchCore"]),
         .testTarget(name: "PerchGitHubTests", dependencies: ["PerchGitHub", "PerchCore"]),
         .testTarget(name: "PerchConfigTests", dependencies: ["PerchConfig", "PerchCore"]),
+        .testTarget(name: "PerchModulesTests", dependencies: ["PerchModules", "PerchCore", "PerchModuleKit"]),
     ]
 )

@@ -34,6 +34,12 @@ public struct ModuleFactory: Sendable {
         case VitalsModule.descriptor.id:
             return AnyNotchModule(VitalsModule())
 
+        case TimerModule.descriptor.id:
+            return AnyNotchModule(TimerModule())
+
+        case DeployModule.descriptor.id:
+            return AnyNotchModule(DeployModule())
+
         case ClockModule.descriptor.id:
             return AnyNotchModule(ClockModule())
 

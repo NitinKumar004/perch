@@ -5,11 +5,6 @@
 A modular, accuracy-first developer HUD for the MacBook notch. Glance up to know
 your build, PRs and deploys are fine — instead of tab-switching to find out.
 
-> This repo is the **walking skeleton**: the notch window, the module/slot
-> architecture, the accuracy engine, and one local module (Clock) plus a
-> simulated Build signal that exercises the whole pipeline. Real integrations
-> (GitHub, deploys, vitals) slot in behind the same contract.
-
 ## Requirements
 
 - macOS 14+
@@ -21,10 +16,9 @@ your build, PRs and deploys are fine — instead of tab-switching to find out.
 swift run Perch
 ```
 
-Perch launches as a background agent — no Dock icon. Look at your notch: a **CI**
-pill on the left (cycling running → passing → failing to show state changes and
-the accuracy engine rejecting an out-of-order event) and a **clock** on the
-right. Quit from the 🐦 menu-bar item.
+Perch launches as a background agent — no Dock icon, just a 🐦 menu-bar item and
+the notch HUD. Click a pill to connect GitHub (device flow) or open the detail
+panel; use **Settings…** to configure everything.
 
 ## Test
 
@@ -32,18 +26,60 @@ right. Quit from the 🐦 menu-bar item.
 swift test
 ```
 
+## Modules
+
+Each signal is a module. Place any of them in the left pill, right pill, or the
+drop-down panel.
+
+| Module | id | Shows | Needs |
+|---|---|---|---|
+| Build | `github.builds` | latest Actions run: passing / failing / running | GitHub |
+| Pull requests | `github.prs` | count of PRs waiting on your review | GitHub |
+| Deploy health | `deploy.health` | ping a URL: up / degraded / down | a URL |
+| CPU | `system.cpu` | system CPU %, green/amber/red | — (local) |
+| Focus timer | `focus.timer` | a local countdown / pomodoro | — (local) |
+| Clock | `system.clock` | the time | — (local) |
+
+## Configure
+
+Two ways, same result:
+
+- **Settings…** (🐦 menu) — a native window: pick a module per slot and fill its
+  settings. Save re-wires the notch immediately.
+- **Edit Configuration File…** — `~/.config/perch/layout.json`, then **Reload
+  Configuration**. The file is versioned; a corrupt file is backed up and reset
+  so the app always starts.
+
+Example `layout.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "activePreset": "default",
+  "presets": {
+    "default": {
+      "leftPill":  { "module": "github.builds", "settings": { "repo": "you/app", "branch": "main" } },
+      "rightPill": { "module": "github.prs",    "settings": { "queue": "review-requested" } },
+      "panel":     [ { "module": "github.builds" }, { "module": "system.cpu" } ]
+    }
+  }
+}
+```
+
 ## Architecture
 
 Dependencies point one way. A module can never import the UI; the UI can never
-import a provider.
+import a provider. See `docs/architecture.md`.
 
 ```
 PerchCore        domain vocabulary — Slot, Freshness, Snapshot, Tint (no deps)
 PerchModuleKit   the SDK: NotchModule protocol, PillFace/PillContent, registry
 PerchSync        the accuracy engine: VersionedStore (ordering + freshness)
-PerchModules     concrete modules: Clock, FakeBuild
-PerchNotchUI     the notch window (AppKit) + SwiftUI pill rendering
-PerchApp         composition root: wires modules → slots → window
+PerchGitHub      device-flow auth + Keychain + API client
+PerchConfig      the versioned layout.json (sources, slots, settings, presets)
+PerchModules     the modules: Build, PRs, Deploy, CPU, Timer, Clock + catalog
+PerchNotchUI     the notch window (AppKit) + SwiftUI pills + drop-down panel
+PerchApp         composition root: config → modules → slots → window + settings
 ```
 
 ### The two ideas that make it clean
@@ -59,7 +95,15 @@ PerchApp         composition root: wires modules → slots → window
    out-of-order or duplicate events can never move state backwards, and a value
    past its TTL is shown dimmed as stale — never as a confident, wrong "green".
 
+## Privacy
+
+Everything is local. The GitHub token lives in the macOS Keychain (device-only);
+build/PR status is held in memory only. No server, no database, nothing leaves
+your Mac except the calls to GitHub itself.
+
 ## Status
 
-Walking skeleton — see the architecture plan for the full roadmap
-(real GitHub provider, config/presets, plugin SDK, notarization + Sparkle).
+Working: GitHub build + PR modules, deploy/CPU/timer/clock, the config engine,
+the settings window, and the drop-down panel. Remaining: notarization + Sparkle
+auto-update (so it installs without building), and a non-notch floating fallback.
+See `docs/roadmap.md`.

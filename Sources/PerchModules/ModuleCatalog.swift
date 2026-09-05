@@ -65,6 +65,11 @@ public enum ModuleCatalog {
                 summary: VitalsModule.descriptor.summary,
                 requiresConnection: false, settings: []),
             CatalogEntry(
+                id: MemoryModule.descriptor.id,
+                name: MemoryModule.descriptor.name,
+                summary: MemoryModule.descriptor.summary,
+                requiresConnection: false, settings: []),
+            CatalogEntry(
                 id: TimerModule.descriptor.id,
                 name: TimerModule.descriptor.name,
                 summary: TimerModule.descriptor.summary,

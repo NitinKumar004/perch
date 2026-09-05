@@ -12,6 +12,17 @@ import PerchModuleKit
     #expect(m.face(for: 10, in: .rightPill).tint == .good)
     #expect(m.face(for: 75, in: .rightPill).tint == .warning)
     #expect(m.face(for: 95, in: .rightPill).tint == .critical)
+    // Labeled so it's never confused with another vitals pill.
+    #expect(m.face(for: 27, in: .rightPill).text == "CPU 27%")
+}
+
+@Test func memoryFaceIsLabelledAndDistinct() {
+    let m = MemoryModule()
+    #expect(m.face(for: 61, in: .rightPill).text == "RAM 61%")
+    #expect(m.face(for: 61, in: .rightPill).symbolName == "memorychip")
+    #expect(m.face(for: 40, in: .rightPill).tint == .good)
+    #expect(m.face(for: 80, in: .rightPill).tint == .warning)
+    #expect(m.face(for: 95, in: .rightPill).tint == .critical)
 }
 
 @Test func prsFaceGoesQuietAtZero() {

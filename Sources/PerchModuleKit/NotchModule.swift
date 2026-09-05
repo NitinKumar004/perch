@@ -28,8 +28,15 @@ public protocol NotchModule: Sendable {
     /// Defaults to empty — a module only overrides this when it has more to show
     /// than its pill (e.g. a build's commit + open-run link, or a PR list).
     func detail(for value: State) -> [DetailRow]
+
+    /// A notification to raise given the new state and the previous one, or nil.
+    /// Defaults to nil — a module overrides it to alert on notable transitions
+    /// (a build turning red, a new review request). The shell dedups by the
+    /// alert's `id`, so returning the same alert repeatedly fires it once.
+    func notification(for value: State, previous: State?) -> ModuleAlert?
 }
 
 public extension NotchModule {
     func detail(for value: State) -> [DetailRow] { [] }
+    func notification(for value: State, previous: State?) -> ModuleAlert? { nil }
 }

@@ -14,11 +14,14 @@ public struct AnyNotchModule: Sendable {
         self.makeStream = { context, slot in
             AsyncStream<ModuleRender> { continuation in
                 let task = Task {
+                    var previous: M.State?
                     for await snapshot in module.stream(context) {
                         let face = module.face(for: snapshot.value, in: slot)
                         let pill = PillContent(face: face, freshness: snapshot.freshness, asOf: snapshot.asOf)
                         let detail = module.detail(for: snapshot.value)
-                        continuation.yield(ModuleRender(pill: pill, detail: detail))
+                        let alert = module.notification(for: snapshot.value, previous: previous)
+                        previous = snapshot.value
+                        continuation.yield(ModuleRender(pill: pill, detail: detail, alert: alert))
                     }
                     continuation.finish()
                 }

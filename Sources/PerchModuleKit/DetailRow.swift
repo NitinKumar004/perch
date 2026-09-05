@@ -12,15 +12,34 @@ public struct DetailRow: Equatable, Sendable, Identifiable {
     public let symbolName: String?
     /// If set, the row is clickable and opens this URL.
     public let url: String?
+    /// If set, the row renders a small trend graph (most-recent value last).
+    public let sparkline: [Double]?
 
     public init(id: String, title: String, subtitle: String? = nil,
-                tint: Tint = .neutral, symbolName: String? = nil, url: String? = nil) {
+                tint: Tint = .neutral, symbolName: String? = nil,
+                url: String? = nil, sparkline: [Double]? = nil) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.tint = tint
         self.symbolName = symbolName
         self.url = url
+        self.sparkline = sparkline
+    }
+}
+
+/// A notification-worthy event a module raises on a state change (e.g. a build
+/// turned red). The shell posts it as a native notification, deduped by `id`.
+public struct ModuleAlert: Equatable, Sendable {
+    /// Stable dedup key — the same alert fires at most once.
+    public let id: String
+    public let title: String
+    public let body: String
+
+    public init(id: String, title: String, body: String) {
+        self.id = id
+        self.title = title
+        self.body = body
     }
 }
 
@@ -29,9 +48,12 @@ public struct DetailRow: Equatable, Sendable, Identifiable {
 public struct ModuleRender: Equatable, Sendable {
     public let pill: PillContent
     public let detail: [DetailRow]
+    /// An alert this update raises, if any (e.g. a build just turned red).
+    public let alert: ModuleAlert?
 
-    public init(pill: PillContent, detail: [DetailRow]) {
+    public init(pill: PillContent, detail: [DetailRow], alert: ModuleAlert? = nil) {
         self.pill = pill
         self.detail = detail
+        self.alert = alert
     }
 }

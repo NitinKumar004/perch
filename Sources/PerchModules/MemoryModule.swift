@@ -3,10 +3,9 @@ import PerchCore
 import PerchModuleKit
 
 /// A fully local, zero-setup module: system memory (RAM) usage. Distinct from
-/// CPU — its own icon and a `RAM` label — so two vitals pills are never
-/// confused. Green under pressure threshold, amber, then red.
+/// CPU — its own icon and a `RAM` label — with a trend sparkline in the panel.
 public struct MemoryModule: NotchModule {
-    public typealias State = Int   // used percent, 0–100
+    public typealias State = VitalSeries
 
     public static let descriptor = ModuleDescriptor(
         id: "system.memory",
@@ -18,15 +17,20 @@ public struct MemoryModule: NotchModule {
 
     public init() {}
 
-    public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<Int>> {
+    public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<VitalSeries>> {
         let clock = context.clock
         return AsyncStream { continuation in
+            var history: [Int] = []
             let task = Task {
-                continuation.yield(Snapshot(value: 0, freshness: .unknown, asOf: clock.now()))
+                continuation.yield(Snapshot(value: .empty, freshness: .unknown, asOf: clock.now()))
                 while !Task.isCancelled {
                     if let percent = MemoryReader.usedPercent() {
+                        let value = Int(percent.rounded())
+                        history.append(value)
+                        if history.count > 40 { history.removeFirst(history.count - 40) }
                         let now = clock.now()
-                        continuation.yield(Snapshot(value: Int(percent.rounded()), freshness: .live, asOf: now))
+                        continuation.yield(Snapshot(value: VitalSeries(current: value, history: history),
+                                                    freshness: .live, asOf: now))
                     }
                     try? await Task.sleep(for: .seconds(2))
                 }
@@ -36,8 +40,11 @@ public struct MemoryModule: NotchModule {
         }
     }
 
-    public func face(for value: Int, in slot: Slot) -> PillFace {
-        let tint: Tint = value >= 90 ? .critical : (value >= 75 ? .warning : .good)
-        return PillFace(text: "RAM \(value)%", symbolName: "memorychip", tint: tint, tooltip: "Memory \(value)% used")
+    public func face(for value: VitalSeries, in slot: Slot) -> PillFace {
+        vitalFace(label: "RAM", symbol: "memorychip", percent: value.current, warn: 75)
+    }
+
+    public func detail(for value: VitalSeries) -> [DetailRow] {
+        [vitalDetailRow(id: "ram", label: "RAM", percent: value.current, history: value.history, warn: 75)]
     }
 }

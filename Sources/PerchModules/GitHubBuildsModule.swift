@@ -110,6 +110,16 @@ public struct GitHubBuildsModule: NotchModule {
             url: value.url)]
     }
 
+    public func notification(for value: BuildInfo, previous: BuildInfo?) -> ModuleAlert? {
+        // Alert when a build newly turns red — once per failing commit.
+        guard value.state == .failing, previous?.state != .failing else { return nil }
+        let branch = value.branch.isEmpty ? "" : " · \(value.branch)"
+        return ModuleAlert(
+            id: "build-failing-\(value.shortSHA.isEmpty ? value.url : value.shortSHA)",
+            title: "Build failing",
+            body: "\(value.workflowName.isEmpty ? "CI" : value.workflowName)\(branch)")
+    }
+
     private static func map(_ state: RunState) -> BuildState {
         switch state {
         case .running:            return .running

@@ -81,6 +81,17 @@ public struct GitHubPRsModule: NotchModule {
                         tint: .warning, tooltip: "\(value.count) PR\(value.count == 1 ? "" : "s") waiting on your review")
     }
 
+    public func notification(for value: PRState, previous: PRState?) -> ModuleAlert? {
+        // Alert when the review queue grows — a new PR is waiting on you.
+        guard let previous, value.count > previous.count else { return nil }
+        let newest = value.items.first
+        return ModuleAlert(
+            id: "prs-\(value.count)-\(newest?.number ?? 0)",
+            title: "Review requested",
+            body: newest.map { "#\($0.number) \($0.title)" }
+                ?? "\(value.count) PR\(value.count == 1 ? "" : "s") waiting on you")
+    }
+
     public func detail(for value: PRState) -> [DetailRow] {
         if value.items.isEmpty {
             return value.count == 0 ? [] : [DetailRow(id: "pr-empty", title: "\(value.count) waiting", tint: .warning)]

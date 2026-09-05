@@ -26,9 +26,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let configStore = ConfigStore()
     private let settingsWindow = SettingsWindowController()
+    private let notifier = Notifier()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installStatusItem()
+        notifier.requestAuthorization()
 
         let actions = PanelActions(
             onConnect: { [weak self] in self?.startConnect() },
@@ -59,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let preset = config.current else { return }
 
         let factory = ModuleFactory(apiClient: GitHubAPIClient(auth: auth))
-        let binder = SlotBinder(model: model, context: ModuleContext())
+        let binder = SlotBinder(model: model, context: ModuleContext(), notifier: notifier)
 
         if let left = preset.leftPill, let module = factory.makeModule(for: left) {
             binder.bind(module, to: .leftPill, settings: left.settings)

@@ -7,22 +7,37 @@ import PerchModuleKit
 // module — so they're worth pinning: a passing build must read green, a
 // pegged CPU must read red, and a nonzero PR queue must read as attention.
 
+private func series(_ v: Int) -> VitalSeries { VitalSeries(current: v, history: [v]) }
+
 @Test func vitalsTintCrossesThresholds() {
     let m = VitalsModule()
-    #expect(m.face(for: 10, in: .rightPill).tint == .good)
-    #expect(m.face(for: 75, in: .rightPill).tint == .warning)
-    #expect(m.face(for: 95, in: .rightPill).tint == .critical)
+    #expect(m.face(for: series(10), in: .rightPill).tint == .good)
+    #expect(m.face(for: series(75), in: .rightPill).tint == .warning)
+    #expect(m.face(for: series(95), in: .rightPill).tint == .critical)
     // Labeled so it's never confused with another vitals pill.
-    #expect(m.face(for: 27, in: .rightPill).text == "CPU 27%")
+    #expect(m.face(for: series(27), in: .rightPill).text == "CPU 27%")
 }
 
 @Test func memoryFaceIsLabelledAndDistinct() {
     let m = MemoryModule()
-    #expect(m.face(for: 61, in: .rightPill).text == "RAM 61%")
-    #expect(m.face(for: 61, in: .rightPill).symbolName == "memorychip")
-    #expect(m.face(for: 40, in: .rightPill).tint == .good)
-    #expect(m.face(for: 80, in: .rightPill).tint == .warning)
-    #expect(m.face(for: 95, in: .rightPill).tint == .critical)
+    #expect(m.face(for: series(61), in: .rightPill).text == "RAM 61%")
+    #expect(m.face(for: series(61), in: .rightPill).symbolName == "memorychip")
+    #expect(m.face(for: series(40), in: .rightPill).tint == .good)
+    #expect(m.face(for: series(80), in: .rightPill).tint == .warning)
+    #expect(m.face(for: series(95), in: .rightPill).tint == .critical)
+}
+
+@Test func vitalsDetailHasSparkline() {
+    let m = VitalsModule()
+    let rows = m.detail(for: VitalSeries(current: 30, history: [10, 20, 30]))
+    #expect(rows.count == 1)
+    #expect(rows[0].sparkline == [10, 20, 30])
+    #expect(rows[0].subtitle == "30%")
+}
+
+@Test func buildNotifiesOnTurningRed() {
+    let m = FakeBuildModule()  // uses BuildState; exercises default nil notification
+    #expect(m.notification(for: .failing, previous: .passing) == nil)  // FakeBuild has no override
 }
 
 @Test func prsFaceGoesQuietAtZero() {

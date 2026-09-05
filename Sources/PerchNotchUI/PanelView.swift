@@ -96,6 +96,10 @@ struct PanelView: View {
                 }
             }
             Spacer(minLength: 8)
+            if let points = row.sparkline, points.count > 1 {
+                Sparkline(points: points, color: tintColor(row.tint))
+                    .frame(width: 64, height: 18)
+            }
             if row.url != nil {
                 Image(systemName: "arrow.up.right.square")
                     .font(.system(size: 11))

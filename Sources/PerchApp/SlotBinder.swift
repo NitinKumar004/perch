@@ -13,11 +13,13 @@ import PerchNotchUI
 final class SlotBinder {
     private let model: NotchViewModel
     private let baseContext: ModuleContext
+    private let notifier: Notifier
     private var tasks: [Task<Void, Never>] = []
 
-    init(model: NotchViewModel, context: ModuleContext) {
+    init(model: NotchViewModel, context: ModuleContext, notifier: Notifier) {
         self.model = model
         self.baseContext = context
+        self.notifier = notifier
     }
 
     /// Bind a module to a slot, handing it the settings the user configured for
@@ -25,8 +27,9 @@ final class SlotBinder {
     func bind(_ module: AnyNotchModule, to slot: Slot, settings: [String: String] = [:]) {
         let context = ModuleContext(clock: baseContext.clock, settings: settings)
         let stream = module.renderStream(context, slot: slot)
-        let task = Task { @MainActor [model] in
+        let task = Task { @MainActor [model, notifier] in
             for await render in stream {
+                if let alert = render.alert { notifier.post(alert) }
                 switch slot {
                 case .leftPill:  model.leftPill = render.pill
                 case .rightPill: model.rightPill = render.pill
@@ -51,8 +54,9 @@ final class SlotBinder {
             id: id, title: title,
             content: PillContent(face: module.descriptor.placeholderFace, freshness: .unknown, asOf: Date())))
 
-        let task = Task { @MainActor [model] in
+        let task = Task { @MainActor [model, notifier] in
             for await render in stream {
+                if let alert = render.alert { notifier.post(alert) }
                 if let row = model.panelItems.firstIndex(where: { $0.id == id }) {
                     model.panelItems[row].content = render.pill
                     model.panelItems[row].detail = render.detail

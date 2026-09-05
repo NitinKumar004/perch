@@ -15,12 +15,15 @@ struct SettingsView: View {
     @State private var right: SlotEditor
     @State private var panel: [SlotEditor]
     @State private var connected: Bool?   // nil = still checking
+    @State private var showTokenField = false
+    @State private var tokenText = ""
 
     private let presetName: String
     private let baseConfig: LayoutConfig
     private let onSave: (LayoutConfig) -> Void
     private let isConnected: () async -> Bool
     private let onConnect: () -> Void
+    private let onUseToken: (String) -> Void
 
     private let catalog = ModuleCatalog.all()
 
@@ -28,12 +31,14 @@ struct SettingsView: View {
         config: LayoutConfig,
         isConnected: @escaping () async -> Bool = { false },
         onConnect: @escaping () -> Void = {},
+        onUseToken: @escaping (String) -> Void = { _ in },
         onSave: @escaping (LayoutConfig) -> Void
     ) {
         self.baseConfig = config
         self.onSave = onSave
         self.isConnected = isConnected
         self.onConnect = onConnect
+        self.onUseToken = onUseToken
         let preset = config.current ?? Preset()
         self.presetName = config.activePreset
         _left = State(initialValue: SlotEditor(binding: preset.leftPill))
@@ -87,25 +92,46 @@ struct SettingsView: View {
     // MARK: - GitHub connection
 
     private var connectionCard: some View {
-        HStack(spacing: 12) {
-            Image(systemName: connected == true ? "checkmark.seal.fill" : "person.badge.key")
-                .font(.system(size: 20))
-                .foregroundStyle(connected == true ? Color.green : Color.secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("GitHub").font(.system(size: 13, weight: .semibold))
-                Text(connectionSubtitle)
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: connected == true ? "checkmark.seal.fill" : "person.badge.key")
+                    .font(.system(size: 20))
+                    .foregroundStyle(connected == true ? Color.green : Color.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("GitHub").font(.system(size: 13, weight: .semibold))
+                    Text(connectionSubtitle)
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                switch connected {
+                case .some(true):
+                    Text("Connected").font(.system(size: 12, weight: .medium)).foregroundStyle(.green)
+                case .some(false):
+                    Button("Connect GitHub") { onConnect() }.controlSize(.regular)
+                case .none:
+                    ProgressView().controlSize(.small)
+                }
             }
-            Spacer()
-            switch connected {
-            case .some(true):
-                Text("Connected").font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.green)
-            case .some(false):
-                Button("Connect GitHub") { onConnect() }
-                    .controlSize(.regular)
-            case .none:
-                ProgressView().controlSize(.small)
+
+            // Token sign-in — the path that reads private org repos without an
+            // app install. Collapsed by default so the simple path stays simple.
+            DisclosureGroup(isExpanded: $showTokenField) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Reads every repo you can access — including private org repos the app isn't installed on. Create a token with `repo` (classic) or read-only Contents + Pull requests (fine-grained).")
+                        .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                    HStack {
+                        SecureField("ghp_… or github_pat_…", text: $tokenText)
+                            .textFieldStyle(.roundedBorder)
+                        Button("Use token") { onUseToken(tokenText); tokenText = "" }
+                            .disabled(tokenText.isEmpty)
+                    }
+                    Link("Create a token on GitHub ↗",
+                         destination: URL(string: "https://github.com/settings/tokens?type=beta")!)
+                        .font(.system(size: 10.5))
+                }
+                .padding(.top, 4)
+            } label: {
+                Text("Sign in with a token instead").font(.system(size: 11, weight: .medium))
             }
         }
         .padding(14)

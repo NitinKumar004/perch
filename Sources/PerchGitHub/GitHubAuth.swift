@@ -99,6 +99,17 @@ public actor GitHubAuth {
         throw GitHubAuthError.deviceCodeExpired
     }
 
+    /// Sign in with a Personal Access Token instead of the device flow. A PAT is
+    /// a non-expiring token, so it slots into the same store and needs no
+    /// refresh — and it can read every repo the user has access to (including
+    /// private org repos the GitHub App isn't installed on).
+    public func signIn(withPersonalAccessToken pat: String) throws {
+        let trimmed = pat.trimmingCharacters(in: .whitespacesAndNewlines)
+        let token = GitHubToken(accessToken: trimmed, refreshToken: nil,
+                                expiresAt: nil, refreshTokenExpiresAt: nil)
+        try persist(token)
+    }
+
     /// Forget the stored token, in the Keychain and in memory.
     public func signOut() throws {
         try store.clear()

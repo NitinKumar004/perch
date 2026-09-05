@@ -157,11 +157,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow.show(
             config: config,
             isConnected: { [auth] in await auth.isConnected() },
-            onConnect: { [weak self] in self?.startConnect() }
+            onConnect: { [weak self] in self?.startConnect() },
+            onUseToken: { [weak self] pat in self?.signInWithToken(pat) }
         ) { [weak self] edited in
             guard let self else { return }
             try? self.configStore.save(edited)
             self.applyConfig()
+        }
+    }
+
+    /// Save a pasted Personal Access Token as the GitHub credential, then re-wire
+    /// so modules pick it up immediately (it can read private repos the app can't).
+    private func signInWithToken(_ pat: String) {
+        guard !pat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        Task {
+            try? await auth.signIn(withPersonalAccessToken: pat)
+            model.isConnected = true
+            connectItem?.title = "GitHub: connected ✓"
+            connectItem?.isEnabled = false
+            applyConfig()
         }
     }
 

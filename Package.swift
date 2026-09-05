@@ -33,8 +33,12 @@ let package = Package(
         // (API queries + modules land on top of this.)
         .target(name: "PerchGitHub", dependencies: ["PerchCore"]),
 
+        // User-facing configuration: the versioned layout.json — sources,
+        // slot assignments, per-module settings, presets. Loading + migration.
+        .target(name: "PerchConfig", dependencies: ["PerchCore"]),
+
         // First-party modules (local Clock, a demo Build, and the real GitHub build).
-        .target(name: "PerchModules", dependencies: ["PerchModuleKit", "PerchSync", "PerchGitHub"]),
+        .target(name: "PerchModules", dependencies: ["PerchModuleKit", "PerchSync", "PerchGitHub", "PerchConfig"]),
 
         // The notch window + SwiftUI rendering of the declarative pill vocabulary.
         .target(name: "PerchNotchUI", dependencies: ["PerchModuleKit"]),
@@ -49,5 +53,6 @@ let package = Package(
         .testTarget(name: "PerchCoreTests", dependencies: ["PerchCore"]),
         .testTarget(name: "PerchSyncTests", dependencies: ["PerchSync", "PerchCore"]),
         .testTarget(name: "PerchGitHubTests", dependencies: ["PerchGitHub", "PerchCore"]),
+        .testTarget(name: "PerchConfigTests", dependencies: ["PerchConfig", "PerchCore"]),
     ]
 )

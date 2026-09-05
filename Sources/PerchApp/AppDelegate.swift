@@ -4,6 +4,7 @@ import PerchModuleKit
 import PerchModules
 import PerchNotchUI
 import PerchGitHub
+import PerchConfig
 
 /// The composition root: the one place that knows about every layer. It builds
 /// auth, the module registry, applies the layout (which module goes in which
@@ -23,20 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store: KeychainTokenStore()
     )
 
-    // The repo the build pill watches. (Becomes user-configurable via layout.json.)
-    private let watchedRepo = (owner: "NitinKumar004", name: "perch", branch: "main")
+    private let configStore = ConfigStore()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installStatusItem()
-
-        let client = GitHubAPIClient(auth: auth)
-        let registry = ModuleRegistry([
-            AnyNotchModule(GitHubBuildsModule(client: client,
-                                              owner: watchedRepo.owner,
-                                              repo: watchedRepo.name,
-                                              branch: watchedRepo.branch)),
-            AnyNotchModule(ClockModule()),
-        ])
 
         let controller = NotchWindowController(model: model, onActivate: { [weak self] in
             self?.startConnect()
@@ -44,17 +35,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.show()
         windowController = controller
 
-        // Layout: real build → left pill, clock → right pill.
+        applyConfig()
+        refreshConnectItem()
+    }
+
+    /// Read the user's layout.json and wire the notch from it. Called at launch
+    /// and whenever the config changes, so customisation takes effect without a
+    /// restart. Everything about which module sits where now comes from config.
+    private func applyConfig() {
+        binder?.cancelAll()
+        model.leftPill = nil
+        model.rightPill = nil
+
+        let config = configStore.load()
+        guard let preset = config.current else { return }
+
+        let factory = ModuleFactory(apiClient: GitHubAPIClient(auth: auth))
         let binder = SlotBinder(model: model, context: ModuleContext())
-        if let build = registry.module(id: GitHubBuildsModule.descriptor.id) {
-            binder.bind(build, to: .leftPill)
+
+        if let left = preset.leftPill, let module = factory.makeModule(for: left) {
+            binder.bind(module, to: .leftPill, settings: left.settings)
         }
-        if let clock = registry.module(id: ClockModule.descriptor.id) {
-            binder.bind(clock, to: .rightPill)
+        if let right = preset.rightPill, let module = factory.makeModule(for: right) {
+            binder.bind(module, to: .rightPill, settings: right.settings)
         }
         self.binder = binder
-
-        refreshConnectItem()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -77,11 +82,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         connectItem = connect
 
         menu.addItem(.separator())
+
+        let edit = NSMenuItem(title: "Edit Configuration…", action: #selector(editConfig), keyEquivalent: ",")
+        edit.target = self
+        menu.addItem(edit)
+
+        let reload = NSMenuItem(title: "Reload Configuration", action: #selector(reloadConfig), keyEquivalent: "r")
+        reload.target = self
+        menu.addItem(reload)
+
+        menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Perch",
                      action: #selector(NSApplication.terminate(_:)),
                      keyEquivalent: "q")
         item.menu = menu
         statusItem = item
+    }
+
+    /// Open layout.json in the user's editor. Loading first guarantees the file
+    /// exists (defaults are written on first run), so there is always something
+    /// to edit.
+    @objc private func editConfig() {
+        _ = configStore.load()
+        NSWorkspace.shared.open(ConfigStore.defaultFileURL)
+    }
+
+    /// Re-read the config and re-wire the notch — no restart needed.
+    @objc private func reloadConfig() {
+        applyConfig()
     }
 
     private func refreshConnectItem() {

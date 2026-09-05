@@ -12,15 +12,18 @@ import PerchNotchUI
 @MainActor
 final class SlotBinder {
     private let model: NotchViewModel
-    private let context: ModuleContext
+    private let baseContext: ModuleContext
     private var tasks: [Task<Void, Never>] = []
 
     init(model: NotchViewModel, context: ModuleContext) {
         self.model = model
-        self.context = context
+        self.baseContext = context
     }
 
-    func bind(_ module: AnyNotchModule, to slot: Slot) {
+    /// Bind a module to a slot, handing it the settings the user configured for
+    /// this placement (repo, branch, filters, …).
+    func bind(_ module: AnyNotchModule, to slot: Slot, settings: [String: String] = [:]) {
+        let context = ModuleContext(clock: baseContext.clock, settings: settings)
         let stream = module.pillStream(context, slot: slot)
         let task = Task { @MainActor [model] in
             for await content in stream {

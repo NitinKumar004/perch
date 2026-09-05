@@ -53,6 +53,7 @@ public struct GitHubBuildsModule: NotchModule {
         return AsyncStream { continuation in
             let store = VersionedStore<String, BuildInfo>(clock: clock)
             let key = "\(owner)/\(repo)@\(branch)"
+            var lastLog: String?   // log only when the outcome changes
 
             let task = Task {
                 continuation.yield(Snapshot(value: .unknown, freshness: .unknown, asOf: clock.now()))
@@ -68,17 +69,19 @@ public struct GitHubBuildsModule: NotchModule {
                                 shortSHA: observation.shortSHA,
                                 durationText: Self.formatDuration(observation.durationSeconds),
                                 url: observation.url)
-                            print("[perch] build poll \(key): \(info.state)")
+                            let line = "\(info.state)"
+                            if lastLog != line { print("[perch] build poll \(key): \(line)"); lastLog = line }
                             let accepted = await store.apply(info, forKey: key, version: observation.updatedAt)
                             if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
                                 continuation.yield(snapshot)
                             }
                             nextDelay = (info.state == .running) ? 15 : 60
-                        } else {
-                            print("[perch] build poll \(key): no runs found")
+                        } else if lastLog != "none" {
+                            print("[perch] build poll \(key): no runs found"); lastLog = "none"
                         }
                     } catch {
-                        print("[perch] build poll \(key): error \(error)")
+                        let line = "error \(error)"
+                        if lastLog != line { print("[perch] build poll \(key): \(line)"); lastLog = line }
                         if let stale = await store.snapshot(forKey: key, ttl: 0) {
                             continuation.yield(stale)
                         } else {

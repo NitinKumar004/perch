@@ -50,6 +50,7 @@ public struct GitHubPRsModule: NotchModule {
         return AsyncStream { continuation in
             let store = VersionedStore<String, PRState>(clock: clock)
             let key = "\(queue.rawValue)#\(repo ?? "*")"
+            var lastError: String?   // so a repeating error is logged once, not every poll
 
             let task = Task {
                 continuation.yield(Snapshot(value: .empty, freshness: .unknown, asOf: clock.now()))
@@ -58,14 +59,15 @@ public struct GitHubPRsModule: NotchModule {
                     var nextDelay: Double = 90
                     do {
                         let observation = try await client.pullRequestList(queue: queue, repo: repo, now: clock.now())
-                        print("[perch] pr poll \(key): \(observation.total)")
+                        if lastError != nil { print("[perch] pr poll \(key): recovered"); lastError = nil }
                         let state = PRState(count: observation.total, items: observation.items, repoScope: repo)
                         let accepted = await store.apply(state, forKey: key, version: observation.observedAt)
                         if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
                             continuation.yield(snapshot)
                         }
                     } catch {
-                        print("[perch] pr poll \(key): error \(error)")
+                        let desc = "\(error)"
+                        if lastError != desc { print("[perch] pr poll \(key): error \(desc)"); lastError = desc }
                         // A 4xx on a repo-scoped query means the current credential
                         // can't see that repo — a private repo the GitHub App isn't
                         // installed on (GitHub returns 422 for that). Show the honest

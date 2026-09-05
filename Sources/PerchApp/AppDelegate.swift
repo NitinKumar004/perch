@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     private let configStore = ConfigStore()
+    private let settingsWindow = SettingsWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installStatusItem()
@@ -101,7 +102,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let edit = NSMenuItem(title: "Edit Configuration…", action: #selector(editConfig), keyEquivalent: ",")
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
+
+        let edit = NSMenuItem(title: "Edit Configuration File…", action: #selector(editConfig), keyEquivalent: "")
         edit.target = self
         menu.addItem(edit)
 
@@ -128,6 +133,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Re-read the config and re-wire the notch — no restart needed.
     @objc private func reloadConfig() {
         applyConfig()
+    }
+
+    /// Open the native settings window; saving persists the config and re-wires
+    /// the notch immediately.
+    @objc private func openSettings() {
+        let config = configStore.load()
+        settingsWindow.show(config: config) { [weak self] edited in
+            guard let self else { return }
+            try? self.configStore.save(edited)
+            self.applyConfig()
+        }
     }
 
     private func refreshConnectItem() {

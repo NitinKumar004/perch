@@ -10,15 +10,21 @@ final class SettingsWindowController {
     private var window: NSWindow?
 
     /// Show the settings window for `config`; `onSave` receives the edited
-    /// config to persist and apply.
-    func show(config: LayoutConfig, onSave: @escaping (LayoutConfig) -> Void) {
+    /// config to persist and apply. `isConnected`/`onConnect` let the window show
+    /// GitHub sign-in status and start the device-flow login inline.
+    func show(
+        config: LayoutConfig,
+        isConnected: @escaping () async -> Bool = { false },
+        onConnect: @escaping () -> Void = {},
+        onSave: @escaping (LayoutConfig) -> Void
+    ) {
         if let window {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let view = SettingsView(config: config) { [weak self] edited in
+        let view = SettingsView(config: config, isConnected: isConnected, onConnect: onConnect) { [weak self] edited in
             onSave(edited)
             self?.window?.close()
         }

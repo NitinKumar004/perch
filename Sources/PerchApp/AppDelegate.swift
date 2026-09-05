@@ -152,7 +152,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController?.setPanelOpen(false)
 
         let config = configStore.load()
-        settingsWindow.show(config: config) { [weak self] edited in
+        settingsWindow.show(
+            config: config,
+            isConnected: { [auth] in await auth.isConnected() },
+            onConnect: { [weak self] in self?.startConnect() }
+        ) { [weak self] edited in
             guard let self else { return }
             try? self.configStore.save(edited)
             self.applyConfig()

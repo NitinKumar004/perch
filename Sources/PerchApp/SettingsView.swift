@@ -4,21 +4,36 @@ import PerchModules
 
 /// A native settings window: choose which module sits in each slot — left pill,
 /// right pill, and the drop-down panel (a list) — and fill each one's settings.
-/// No JSON. Edits the active preset and hands the result to `onSave`, which
-/// persists it and re-wires the notch.
+///
+/// The mental model is made explicit for newcomers: a connection card up top
+/// makes GitHub sign-in a one-click affair, and every module picker groups its
+/// choices by what they need — "On your Mac" (instant), "GitHub" (live, needs
+/// sign-in) and "Web check" (a URL). No JSON. Edits the active preset and hands
+/// the result to `onSave`, which persists it and re-wires the notch.
 struct SettingsView: View {
     @State private var left: SlotEditor
     @State private var right: SlotEditor
     @State private var panel: [SlotEditor]
+    @State private var connected: Bool?   // nil = still checking
+
     private let presetName: String
     private let baseConfig: LayoutConfig
     private let onSave: (LayoutConfig) -> Void
+    private let isConnected: () async -> Bool
+    private let onConnect: () -> Void
 
     private let catalog = ModuleCatalog.all()
 
-    init(config: LayoutConfig, onSave: @escaping (LayoutConfig) -> Void) {
+    init(
+        config: LayoutConfig,
+        isConnected: @escaping () async -> Bool = { false },
+        onConnect: @escaping () -> Void = {},
+        onSave: @escaping (LayoutConfig) -> Void
+    ) {
         self.baseConfig = config
         self.onSave = onSave
+        self.isConnected = isConnected
+        self.onConnect = onConnect
         let preset = config.current ?? Preset()
         self.presetName = config.activePreset
         _left = State(initialValue: SlotEditor(binding: preset.leftPill))
@@ -30,10 +45,16 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    slotSection(title: "Left pill", editor: $left)
+                VStack(alignment: .leading, spacing: 20) {
+                    connectionCard
                     Divider()
-                    slotSection(title: "Right pill", editor: $right)
+                    slotSection(title: "Left pill",
+                                caption: "The icon just left of the notch.",
+                                editor: $left)
+                    Divider()
+                    slotSection(title: "Right pill",
+                                caption: "The icon just right of the notch.",
+                                editor: $right)
                     Divider()
                     panelSection
                 }
@@ -42,33 +63,87 @@ struct SettingsView: View {
             Divider()
             footer
         }
-        .frame(width: 480, height: 600)
+        .frame(width: 500, height: 640)
+        .task {
+            // Load once, then keep the card in sync while the window is open so it
+            // flips to "Connected" on its own right after the device-flow login.
+            while !Task.isCancelled {
+                connected = await isConnected()
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+            }
+        }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("Perch Settings").font(.system(size: 16, weight: .semibold))
-            Text("Preset: \(presetName) · choose what each pill and the panel show")
+            Text("Pick what each spot shows. Preset: \(presetName)")
                 .font(.system(size: 12)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
     }
 
+    // MARK: - GitHub connection
+
+    private var connectionCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: connected == true ? "checkmark.seal.fill" : "person.badge.key")
+                .font(.system(size: 20))
+                .foregroundStyle(connected == true ? Color.green : Color.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("GitHub").font(.system(size: 13, weight: .semibold))
+                Text(connectionSubtitle)
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            Spacer()
+            switch connected {
+            case .some(true):
+                Text("Connected").font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.green)
+            case .some(false):
+                Button("Connect GitHub") { onConnect() }
+                    .controlSize(.regular)
+            case .none:
+                ProgressView().controlSize(.small)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.4)))
+    }
+
+    private var connectionSubtitle: String {
+        switch connected {
+        case .some(true):  return "Live checks (Build, Pull requests) are enabled."
+        case .some(false): return "Sign in once to enable live GitHub checks."
+        case .none:        return "Checking…"
+        }
+    }
+
     // MARK: - One slot (a single module)
 
-    private func slotSection(title: String, editor: Binding<SlotEditor>) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private func slotSection(title: String, caption: String, editor: Binding<SlotEditor>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.system(size: 13, weight: .semibold))
+            Text(caption).font(.system(size: 11)).foregroundStyle(.secondary)
             modulePicker(editor: editor)
             settingsFields(for: editor)
         }
     }
 
+    /// A module picker whose choices are grouped by what they need, so the
+    /// local-vs-GitHub distinction is obvious *before* you pick.
     private func modulePicker(editor: Binding<SlotEditor>) -> some View {
         Picker("Module", selection: editor.moduleID) {
             Text("— none —").tag("")
-            ForEach(catalog) { entry in Text(entry.name).tag(entry.id) }
+            ForEach(ModuleGroup.allCases, id: \.self) { group in
+                let entries = catalog.filter { self.group(for: $0) == group }
+                if !entries.isEmpty {
+                    Section(group.label) {
+                        ForEach(entries) { entry in Text(entry.name).tag(entry.id) }
+                    }
+                }
+            }
         }
         .labelsHidden()
     }
@@ -76,13 +151,19 @@ struct SettingsView: View {
     @ViewBuilder
     private func settingsFields(for editor: Binding<SlotEditor>) -> some View {
         if let entry = catalog.first(where: { $0.id == editor.wrappedValue.moduleID }) {
+            let grp = group(for: entry)
             HStack(spacing: 6) {
-                Image(systemName: entry.requiresConnection ? "person.badge.key" : "desktopcomputer")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
-                Text(entry.requiresConnection ? "Needs GitHub" : "Local — no setup")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                Image(systemName: grp.icon).font(.system(size: 10)).foregroundStyle(.secondary)
+                Text(grp.label).font(.system(size: 10)).foregroundStyle(.secondary)
             }
             Text(entry.summary).font(.system(size: 11)).foregroundStyle(.secondary)
+
+            // If this module needs GitHub and we're not signed in, say so plainly.
+            if entry.requiresConnection, connected == false {
+                Label("Connect GitHub above to enable this.", systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 11)).foregroundStyle(.orange)
+            }
+
             ForEach(entry.settings, id: \.key) { setting in
                 HStack {
                     Text(setting.label).font(.system(size: 12)).frame(width: 150, alignment: .leading)
@@ -97,9 +178,13 @@ struct SettingsView: View {
     // MARK: - Panel (a list of modules)
 
     private var panelSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Panel (drop-down)").font(.system(size: 13, weight: .semibold))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Panel").font(.system(size: 13, weight: .semibold))
+                    Text("The list shown when you click the notch.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button {
                     panel.append(SlotEditor(binding: nil))
@@ -143,6 +228,35 @@ struct SettingsView: View {
         preset.panel = panel.compactMap { $0.toBinding() }
         config.presets[config.activePreset] = preset
         onSave(config)
+    }
+
+    // MARK: - Grouping
+
+    /// How a module is grouped in the picker — derived from what it needs, so
+    /// adding a new module to the catalog slots it in automatically.
+    private enum ModuleGroup: CaseIterable {
+        case local, github, web
+
+        var label: String {
+            switch self {
+            case .local:  return "On your Mac — no setup"
+            case .github: return "GitHub — live, needs sign-in"
+            case .web:    return "Web check — a URL"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .local:  return "desktopcomputer"
+            case .github: return "person.badge.key"
+            case .web:    return "globe"
+            }
+        }
+    }
+
+    private func group(for entry: CatalogEntry) -> ModuleGroup {
+        if entry.requiresConnection { return .github }
+        if entry.settings.contains(where: { $0.key == "url" }) { return .web }
+        return .local
     }
 }
 

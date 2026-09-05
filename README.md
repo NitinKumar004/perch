@@ -5,12 +5,24 @@
 A modular, accuracy-first developer HUD for the MacBook notch. Glance up to know
 your build, PRs and deploys are fine — instead of tab-switching to find out.
 
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NitinKumar004/perch/main/get.sh | bash
+```
+
+Downloads the latest `Perch.app`, drops it in `/Applications`, and launches it.
+No Apple ID, no password. The app is **unsigned** (ad-hoc signed) — installing
+via `curl` avoids the Gatekeeper prompt because the download isn't quarantined.
+(If you download the zip in a browser instead, right-click the app → **Open**
+the first time.)
+
 ## Requirements
 
 - macOS 14+
-- Swift 6.1+ (Xcode 16 toolchain)
+- To build from source: Swift 6.1+ (Xcode 16 toolchain)
 
-## Run
+## Run from source
 
 ```bash
 swift run Perch

@@ -1,0 +1,43 @@
+name: Release
+
+# Push a version tag (e.g. v0.1.0) and this builds the unsigned app bundle,
+# zips it, and publishes a GitHub Release with Perch.zip attached — which is
+# exactly what get.sh downloads. No Apple Developer ID involved.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version from tag
+        id: v
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build & package
+        run: bash scripts/package.sh "${{ steps.v.outputs.version }}"
+
+      - name: Checksum
+        run: shasum -a 256 Perch.zip | tee Perch.zip.sha256
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Perch.zip
+            Perch.zip.sha256
+          body: |
+            Install:
+
+            ```
+            curl -fsSL https://raw.githubusercontent.com/NitinKumar004/perch/main/get.sh | bash
+            ```
+
+            Unsigned build (ad-hoc signed). The curl installer avoids the
+            Gatekeeper prompt; a browser download needs right-click → Open.

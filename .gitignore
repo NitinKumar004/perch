@@ -8,3 +8,7 @@ DerivedData/
 *.pem
 *.p8
 .env
+
+# build artifacts
+/Perch.app
+/Perch.zip

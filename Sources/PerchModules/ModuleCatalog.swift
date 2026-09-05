@@ -1,19 +1,34 @@
 import Foundation
 import PerchCore
 
+/// One fixed choice for a setting rendered as a dropdown — a stored `value` and
+/// a friendly `label`.
+public struct SettingOption: Sendable, Equatable {
+    public let value: String
+    public let label: String
+    public init(value: String, label: String) {
+        self.value = value
+        self.label = label
+    }
+}
+
 /// A user-facing description of a setting a module accepts, so a settings UI can
-/// render the right field without hard-coding any module's keys.
+/// render the right field without hard-coding any module's keys. When `options`
+/// is set, the field is a dropdown; otherwise it's a free-text field.
 public struct ModuleSetting: Sendable, Equatable {
     public let key: String
     public let label: String
     public let placeholder: String
     public let defaultValue: String
+    public let options: [SettingOption]?
 
-    public init(key: String, label: String, placeholder: String, defaultValue: String = "") {
+    public init(key: String, label: String, placeholder: String,
+                defaultValue: String = "", options: [SettingOption]? = nil) {
         self.key = key
         self.label = label
         self.placeholder = placeholder
         self.defaultValue = defaultValue
+        self.options = options
     }
 }
 
@@ -47,9 +62,13 @@ public enum ModuleCatalog {
                 summary: GitHubPRsModule.descriptor.summary,
                 requiresConnection: true,
                 settings: [
-                    ModuleSetting(key: "queue", label: "Queue", placeholder: "review-requested | author",
-                                  defaultValue: "review-requested"),
-                    ModuleSetting(key: "repo", label: "Repository (optional)", placeholder: "owner/name"),
+                    ModuleSetting(key: "queue", label: "Show", placeholder: "",
+                                  defaultValue: "review-requested",
+                                  options: [
+                                    SettingOption(value: "review-requested", label: "PRs waiting on my review"),
+                                    SettingOption(value: "author", label: "PRs I opened"),
+                                  ]),
+                    ModuleSetting(key: "repo", label: "Repository (optional)", placeholder: "owner/name — blank = all repos"),
                 ]),
             CatalogEntry(
                 id: DeployModule.descriptor.id,

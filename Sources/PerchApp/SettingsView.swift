@@ -167,9 +167,20 @@ struct SettingsView: View {
             ForEach(entry.settings, id: \.key) { setting in
                 HStack {
                     Text(setting.label).font(.system(size: 12)).frame(width: 150, alignment: .leading)
-                    TextField(setting.placeholder,
-                              text: editor.setting(setting.key, default: setting.defaultValue))
-                        .textFieldStyle(.roundedBorder)
+                    if let options = setting.options {
+                        // Fixed choices → a dropdown, so nothing has to be typed.
+                        Picker("", selection: editor.setting(setting.key, default: setting.defaultValue)) {
+                            ForEach(options, id: \.value) { option in
+                                Text(option.label).tag(option.value)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        TextField(setting.placeholder,
+                                  text: editor.setting(setting.key, default: setting.defaultValue))
+                            .textFieldStyle(.roundedBorder)
+                    }
                 }
             }
         }

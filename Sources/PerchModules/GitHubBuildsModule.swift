@@ -50,6 +50,7 @@ public struct GitHubBuildsModule: NotchModule {
                     var nextDelay: Double = 60
                     do {
                         if let observation = try await client.latestBuild(owner: owner, repo: repo, branch: branch) {
+                            print("[perch] build poll \(key): \(observation.state) @ \(observation.updatedAt)")
                             let state = Self.map(observation.state)
                             let accepted = await store.apply(state, forKey: key, version: observation.updatedAt)
                             if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
@@ -57,8 +58,11 @@ public struct GitHubBuildsModule: NotchModule {
                             }
                             // Poll fast while something is in flight, slowly when idle.
                             nextDelay = (state == .running) ? 15 : 60
+                        } else {
+                            print("[perch] build poll \(key): no runs found")
                         }
                     } catch {
+                        print("[perch] build poll \(key): error \(error)")
                         // Be honest: show the last value as stale, or unknown/error
                         // if we've never had one. Never a confident, wrong value.
                         if let stale = await store.snapshot(forKey: key, ttl: 0) {
@@ -66,6 +70,9 @@ public struct GitHubBuildsModule: NotchModule {
                         } else {
                             continuation.yield(Snapshot(value: .unknown, freshness: .error("\(error)"), asOf: clock.now()))
                         }
+                        // Recover quickly after a transient failure or a just-completed
+                        // GitHub connect, instead of waiting a full idle interval.
+                        nextDelay = 8
                     }
                     try? await Task.sleep(for: .seconds(nextDelay))
                 }

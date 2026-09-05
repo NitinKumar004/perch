@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var binder: SlotBinder?
     private var statusItem: NSStatusItem?
     private var connectItem: NSMenuItem?
+    private var isConnecting = false
 
     // GitHub auth is created once and shared by the API client.
     private let auth = GitHubAuth(
@@ -37,7 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             AnyNotchModule(ClockModule()),
         ])
 
-        let controller = NotchWindowController(model: model)
+        let controller = NotchWindowController(model: model, onActivate: { [weak self] in
+            self?.startConnect()
+        })
         controller.show()
         windowController = controller
 
@@ -89,17 +92,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc private func connectGitHub() { startConnect() }
+
     /// Runs the device-flow login: shows the user their code, opens github.com,
     /// and waits for them to authorize — then the build pill starts working on
-    /// its next poll (no restart needed).
-    @objc private func connectGitHub() {
+    /// its next poll (no restart needed). Reachable from both the menu item and
+    /// a click on the notch pill. Guarded so repeated clicks don't stack logins.
+    private func startConnect() {
+        guard !isConnecting else { return }
+        isConnecting = true
+
         Task {
+            defer { isConnecting = false }
+
+            if await auth.isConnected() {
+                connectItem?.title = "GitHub: connected ✓"
+                connectItem?.isEnabled = false
+                return
+            }
             do {
                 let code = try await auth.beginDeviceLogin()
 
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(code.userCode, forType: .string)
                 connectItem?.title = "Code \(code.userCode) copied — paste at github.com"
+
+                // Print it loudly to the terminal too, so the code is always
+                // readable even if the clipboard gets overwritten or the menu
+                // title is hidden behind the notch.
+                print("""
+
+                ┌───────────────────────────────────────────────┐
+                │  Perch · GitHub device login                  │
+                │  Enter this code:  \(code.userCode)
+                │  at: \(code.verificationUri)
+                └───────────────────────────────────────────────┘
+
+                """)
+
                 if let url = URL(string: code.verificationUri) {
                     NSWorkspace.shared.open(url)
                 }

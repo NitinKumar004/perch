@@ -10,7 +10,10 @@ import SwiftUI
 public final class NotchWindowController {
     private let panel: NSPanel
 
-    public init(model: NotchViewModel) {
+    /// - Parameter onActivate: called when the user clicks a pill (e.g. to
+    ///   start the GitHub connect flow) — the primary way to interact on notch
+    ///   Macs where the menu-bar icon can hide behind the notch.
+    public init(model: NotchViewModel, onActivate: @escaping () -> Void = {}) {
         let screen = NSScreen.main ?? NSScreen.screens.first
         let metrics = screen.map(NotchGeometry.metrics(for:))
             ?? NotchMetrics(hasNotch: false, notchWidth: 0, notchHeight: 24,
@@ -36,9 +39,9 @@ public final class NotchWindowController {
         panel.isOpaque = false
         panel.hasShadow = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
-        panel.ignoresMouseEvents = true // phase 1: display-only
+        panel.ignoresMouseEvents = false // pills are clickable; transparent areas pass through
 
-        let root = NotchRootView(model: model, notchWidth: metrics.notchWidth)
+        let root = NotchRootView(model: model, notchWidth: metrics.notchWidth, onActivate: onActivate)
         let hosting = NSHostingView(rootView: root)
         hosting.frame = NSRect(origin: .zero, size: contentRect.size)
         hosting.autoresizingMask = [.width, .height]

@@ -33,8 +33,18 @@ public struct GitHubAPIClient: Sendable {
     /// The latest Actions run for `branch`, or `nil` if the repo has none.
     public func latestBuild(owner: String, repo: String, branch: String) async throws -> BuildObservation? {
         let token = try await auth.validAccessToken()
-        let path = "repos/\(owner)/\(repo)/actions/runs?branch=\(branch)&per_page=1"
-        let url = GitHubConfig.apiBaseURL.appendingPathComponent(path)
+
+        // Build the URL via URLComponents so the query string is a real query,
+        // not percent-encoded into the path (which drops the branch filter).
+        var components = URLComponents(
+            url: GitHubConfig.apiBaseURL.appendingPathComponent("repos/\(owner)/\(repo)/actions/runs"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [
+            URLQueryItem(name: "branch", value: branch),
+            URLQueryItem(name: "per_page", value: "1"),
+        ]
+        guard let url = components?.url else { throw GitHubAuthError.decoding }
 
         let request = HTTPRequest(
             url: url,

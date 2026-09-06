@@ -22,6 +22,9 @@ public final class NotchViewModel {
     public var isPanelOpen = false
     /// Whether GitHub is connected — drives the panel's "Connect" button.
     public var isConnected = false
+    /// Width of the physical notch gap, updated when displays change so the pills
+    /// stay flush on either side (0 on non-notch Macs → pills sit together).
+    public var notchWidth: CGFloat = 0
 
     public init() {}
 }

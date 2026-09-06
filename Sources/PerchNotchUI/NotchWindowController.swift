@@ -6,42 +6,27 @@ import SwiftUI
 /// The window never steals focus (`.nonactivatingPanel`), floats above normal
 /// windows (`.statusBar` level), and survives Space switches. Its pills are
 /// clickable; the transparent notch gap passes clicks through. When the panel
-/// opens the window grows downward — and shrinks back when it closes — so a tall
-/// transparent window never sits over the desktop swallowing clicks while idle.
+/// opens the window grows downward — and shrinks back when it closes.
+///
+/// Geometry is recomputed whenever the display arrangement changes (plug/unplug
+/// a monitor, resolution change, lid open/close), and the HUD always binds to
+/// the screen that actually has the notch — falling back to a floating pill on
+/// non-notch Macs.
 @MainActor
 public final class NotchWindowController {
     private let panel: NSPanel
-    private let collapsedHeight: CGFloat
-    private let expandedHeight: CGFloat
-    private let topEdgeY: CGFloat
-    private let frameX: CGFloat
-    private let frameWidth: CGFloat
+    private let model: NotchViewModel
 
-    /// - Parameters:
-    ///   - onActivate: called when the user clicks a pill — used to open/close
-    ///     the panel or start the GitHub connect flow.
-    ///   - panelActions: the controls (Settings/Reload/Quit/Connect) rendered in
-    ///     the panel footer, so everything is reachable from the notch.
+    private let pillZone: CGFloat = 220
+    private let panelDrop: CGFloat = 320
+
     public init(model: NotchViewModel,
                 onActivate: @escaping () -> Void = {},
                 panelActions: PanelActions = PanelActions()) {
-        let screen = NSScreen.main ?? NSScreen.screens.first
-        let metrics = screen.map(NotchGeometry.metrics(for:))
-            ?? NotchMetrics(hasNotch: false, notchWidth: 0, notchHeight: 24,
-                            screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900))
-
-        let pillZone: CGFloat = 220
-        frameWidth = metrics.notchWidth + pillZone * 2
-        collapsedHeight = max(metrics.notchHeight, 32)
-        expandedHeight = collapsedHeight + 320   // room for the drop-down panel
-        frameX = metrics.screenFrame.midX - frameWidth / 2
-        topEdgeY = metrics.screenFrame.maxY      // pin the top to the screen top
-
-        let contentRect = NSRect(x: frameX, y: topEdgeY - collapsedHeight,
-                                 width: frameWidth, height: collapsedHeight)
+        self.model = model
 
         panel = NSPanel(
-            contentRect: contentRect,
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 34),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -55,32 +40,60 @@ public final class NotchWindowController {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         panel.ignoresMouseEvents = false
 
-        let root = NotchRootView(model: model, notchWidth: metrics.notchWidth,
-                                 onActivate: onActivate, panelActions: panelActions)
+        let root = NotchRootView(model: model, onActivate: onActivate, panelActions: panelActions)
         let hosting = NSHostingView(rootView: root)
-        hosting.frame = panel.contentView?.bounds ?? contentRect
         hosting.autoresizingMask = [.width, .height]
-        panel.contentView?.addSubview(hosting)
+        panel.contentView = hosting
+
+        applyGeometry()
+
+        // Reposition on any display change.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(screensChanged),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
     }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 
     public func show() { panel.orderFrontRegardless() }
     public func hide() { panel.orderOut(nil) }
 
     /// Grow/shrink the window as the panel opens/closes, keeping the top edge
-    /// pinned to the notch so the pills never move. When open, the panel becomes
-    /// key so its footer buttons receive clicks; when closed it resigns so it
-    /// never steals focus while idle.
+    /// pinned to the notch. When open, the panel becomes key so its footer
+    /// buttons receive clicks; when closed it resigns so it never steals focus.
     public func setPanelOpen(_ open: Bool) {
-        let height = open ? expandedHeight : collapsedHeight
-        let frame = NSRect(x: frameX, y: topEdgeY - height, width: frameWidth, height: height)
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.22
-            panel.animator().setFrame(frame, display: true)
-        }
-        if open {
-            panel.makeKeyAndOrderFront(nil)
+        applyGeometry(animated: true)
+        if open { panel.makeKeyAndOrderFront(nil) } else { panel.resignKey() }
+    }
+
+    @objc private func screensChanged() { applyGeometry(animated: false) }
+
+    /// The screen with a real hardware notch, or the main screen as a fallback.
+    private func notchScreen() -> NSScreen? {
+        NSScreen.screens.first { NotchGeometry.metrics(for: $0).hasNotch } ?? NSScreen.main
+    }
+
+    /// Recompute the panel frame + notch gap for the current display and apply.
+    private func applyGeometry(animated: Bool = false) {
+        guard let screen = notchScreen() else { return }
+        let metrics = NotchGeometry.metrics(for: screen)
+
+        model.notchWidth = metrics.notchWidth
+
+        let width = metrics.notchWidth + pillZone * 2
+        let collapsedHeight = max(metrics.notchHeight, 32)
+        let height = model.isPanelOpen ? collapsedHeight + panelDrop : collapsedHeight
+        let originX = metrics.screenFrame.midX - width / 2
+        let originY = metrics.screenFrame.maxY - height
+        let frame = NSRect(x: originX, y: originY, width: width, height: height)
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                panel.animator().setFrame(frame, display: true)
+            }
         } else {
-            panel.resignKey()
+            panel.setFrame(frame, display: true)
         }
     }
 }

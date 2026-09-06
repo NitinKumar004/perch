@@ -5,15 +5,13 @@ import SwiftUI
 /// pills sit flush on either side of the real hardware.
 public struct NotchRootView: View {
     @State private var model: NotchViewModel
-    private let notchWidth: CGFloat
     private let onActivate: () -> Void
     private let panelActions: PanelActions
 
-    public init(model: NotchViewModel, notchWidth: CGFloat,
+    public init(model: NotchViewModel,
                 onActivate: @escaping () -> Void = {},
                 panelActions: PanelActions = PanelActions()) {
         self._model = State(initialValue: model)
-        self.notchWidth = notchWidth
         self.onActivate = onActivate
         self.panelActions = panelActions
     }
@@ -33,7 +31,7 @@ public struct NotchRootView: View {
 
                 // The physical notch lives here — draw nothing, and let clicks
                 // pass straight through to the menu bar underneath.
-                Color.clear.frame(width: max(notchWidth, 12)).allowsHitTesting(false)
+                Color.clear.frame(width: max(model.notchWidth, 12)).allowsHitTesting(false)
 
                 Group {
                     if let right = model.rightPill {

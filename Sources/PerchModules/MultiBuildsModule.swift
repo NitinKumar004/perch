@@ -44,7 +44,8 @@ public struct MultiBuildsModule: NotchModule {
         name: "Builds",
         summary: "Latest build across several repos at once.",
         supportedSlots: [.leftPill, .rightPill, .panel],
-        requiresConnection: true
+        requiresConnection: true,
+        detailFirst: true
     )
 
     private let client: GitHubAPIClient

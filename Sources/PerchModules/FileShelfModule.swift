@@ -23,7 +23,8 @@ public struct FileShelfModule: NotchModule {
         name: "Shelf",
         summary: "Drop files here to stash them — click to reveal in Finder.",
         supportedSlots: [.leftPill, .rightPill, .panel],
-        requiresConnection: false
+        requiresConnection: false,
+        detailFirst: true
     )
 
     private let controller: FileShelfController

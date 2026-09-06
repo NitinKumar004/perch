@@ -38,7 +38,8 @@ public struct GitHubPRsModule: NotchModule {
         name: "Pull requests",
         summary: "How many PRs are waiting on your review.",
         supportedSlots: [.leftPill, .rightPill, .panel],
-        requiresConnection: true
+        requiresConnection: true,
+        detailFirst: true
     )
 
     private let client: GitHubAPIClient

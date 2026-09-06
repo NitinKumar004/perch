@@ -23,12 +23,15 @@ public struct PillView: View {
             }
             Text(content.face.text)
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .lineLimit(1)
             if let staleLabel {
                 Text(staleLabel)
                     .font(.system(size: 9, weight: .regular, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
         }
+        .fixedSize()   // natural size — stops the flank layout compressing the
+                       // icon over the text (the cramped/overlapping pill bug)
         .foregroundStyle(tintColor)
         .padding(.horizontal, 8)
         .padding(.vertical, 3)

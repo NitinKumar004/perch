@@ -18,18 +18,26 @@ public struct ModuleDescriptor: Sendable, Equatable {
     /// Whether the module needs an external connection (drives the "Connect…"
     /// affordance) or runs fully locally with zero setup.
     public let requiresConnection: Bool
+    /// A module whose value is a *list you act on* (clipboard, file shelf, the PR
+    /// queue) — a pill can only show its count, which is a dead end. When such a
+    /// module is placed in a pill, the shell also surfaces its detail in the panel
+    /// so its contents stay reachable. Glanceable modules (CPU, clock) leave this
+    /// false.
+    public let detailFirst: Bool
 
     public init(
         id: String,
         name: String,
         summary: String,
         supportedSlots: Set<Slot>,
-        requiresConnection: Bool
+        requiresConnection: Bool,
+        detailFirst: Bool = false
     ) {
         self.id = id
         self.name = name
         self.summary = summary
         self.supportedSlots = supportedSlots
         self.requiresConnection = requiresConnection
+        self.detailFirst = detailFirst
     }
 }

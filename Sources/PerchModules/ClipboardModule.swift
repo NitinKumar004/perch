@@ -27,7 +27,8 @@ public struct ClipboardModule: NotchModule {
         name: "Clipboard",
         summary: "Your recent copies, on-device — click one to copy it again.",
         supportedSlots: [.leftPill, .rightPill, .panel],
-        requiresConnection: false
+        requiresConnection: false,
+        detailFirst: true
     )
 
     private let controller: ClipboardController

@@ -64,6 +64,19 @@ import PerchModuleKit
     #expect(m.face(for: .down, in: .leftPill).tint == .critical)
 }
 
+// MARK: - detailFirst (list modules surface in the panel when pilled)
+
+@Test func detailFirstModulesAreFlagged() {
+    #expect(ClipboardModule.descriptor.detailFirst)
+    #expect(FileShelfModule.descriptor.detailFirst)
+    #expect(GitHubPRsModule.descriptor.detailFirst)
+    #expect(MultiBuildsModule.descriptor.detailFirst)
+    // Glanceable modules are not detail-first — a pill is enough.
+    #expect(!VitalsModule.descriptor.detailFirst)
+    #expect(!ClockModule.descriptor.detailFirst)
+    #expect(!BatteryModule.descriptor.detailFirst)
+}
+
 // MARK: - Network
 
 @Test func networkRateIsHumanReadable() {

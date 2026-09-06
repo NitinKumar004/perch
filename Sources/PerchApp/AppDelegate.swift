@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let configStore = ConfigStore()
     private let settingsWindow = SettingsWindowController()
     private let welcomeWindow = WelcomeWindowController()
+    private let deviceCodeWindow = DeviceCodeWindowController()
     private let notifier = Notifier()
     private let timerController = TimerController()
     private let clipboardController = ClipboardController()
@@ -181,7 +182,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         for k in order {
-            guard let group = groups[k], let module = factory.makeModule(for: group.binding) else { continue }
+            guard var group = groups[k], let module = factory.makeModule(for: group.binding) else { continue }
+            // A "detail-first" module (clipboard, file shelf, PR queue) placed
+            // only in a pill would be a dead end — the pill shows just a count.
+            // Also surface it in the panel so its contents stay reachable.
+            if module.descriptor.detailFirst, !group.pills.isEmpty, group.panelIDs.isEmpty {
+                let autoID = "\(group.binding.module)#pill"
+                binder.seedPanelItem(id: autoID, module: module)
+                group.panelIDs.append(autoID)
+            }
             binder.bindShared(module, settings: group.binding.settings,
                               pills: group.pills, panelIDs: group.panelIDs)
         }
@@ -451,33 +460,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 let code = try await auth.beginDeviceLogin()
 
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(code.userCode, forType: .string)
-                connectItem?.title = "Code \(code.userCode) copied — paste at github.com"
-
-                // Print it loudly to the terminal too, so the code is always
-                // readable even if the clipboard gets overwritten or the menu
-                // title is hidden behind the notch.
-                print("""
-
-                ┌───────────────────────────────────────────────┐
-                │  Perch · GitHub device login                  │
-                │  Enter this code:  \(code.userCode)
-                │  at: \(code.verificationUri)
-                └───────────────────────────────────────────────┘
-
-                """)
-
+                // Surface the code clearly: a window shows it big + copies it +
+                // opens the GitHub page, so the user always knows what to enter.
+                deviceCodeWindow.show(code: code.userCode, verificationUri: code.verificationUri)
+                connectItem?.title = "Enter code \(code.userCode) — see the window"
                 if let url = URL(string: code.verificationUri) {
                     NSWorkspace.shared.open(url)
                 }
 
                 try await auth.awaitAuthorization(code)
-                model.isConnected = true
-                connectItem?.title = "GitHub: connected ✓"
-                connectItem?.isEnabled = false
+                markConnected()
+                deviceCodeWindow.markConnected()
             } catch {
                 connectItem?.title = "GitHub: connect failed — retry"
+                deviceCodeWindow.markFailed()
             }
         }
     }

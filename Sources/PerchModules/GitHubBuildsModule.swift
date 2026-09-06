@@ -56,6 +56,8 @@ public struct GitHubBuildsModule: NotchModule {
             var lastLog: String?   // log only when the outcome changes
             var failures = 0       // for exponential backoff on the error path
             let backoff = Backoff(base: 10, cap: 300)
+            var etag: String?      // conditional-request tag; 304s are free
+            var lastState: BuildState = .unknown
 
             let task = Task {
                 continuation.yield(Snapshot(value: .unknown, freshness: .unknown, asOf: clock.now()))
@@ -63,7 +65,14 @@ public struct GitHubBuildsModule: NotchModule {
                 while !Task.isCancelled {
                     var nextDelay: Double = 60
                     do {
-                        if let observation = try await client.latestBuild(owner: owner, repo: repo, branch: branch) {
+                        let fetch = try await client.latestBuild(owner: owner, repo: repo, branch: branch, etag: etag)
+                        failures = 0
+                        switch fetch {
+                        case .notModified:
+                            // Unchanged since last poll — free 304, nothing to do.
+                            nextDelay = (lastState == .running) ? 15 : 60
+                        case .ok(let observation?, let newEtag):
+                            etag = newEtag
                             let info = BuildInfo(
                                 state: Self.map(observation.state),
                                 workflowName: observation.workflowName,
@@ -71,16 +80,16 @@ public struct GitHubBuildsModule: NotchModule {
                                 shortSHA: observation.shortSHA,
                                 durationText: Self.formatDuration(observation.durationSeconds),
                                 url: observation.url)
+                            lastState = info.state
                             let line = "\(info.state)"
                             if lastLog != line { print("[perch] build poll \(key): \(line)"); lastLog = line }
-                            failures = 0
                             let accepted = await store.apply(info, forKey: key, version: observation.updatedAt)
                             if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
                                 continuation.yield(snapshot)
                             }
                             nextDelay = (info.state == .running) ? 15 : 60
-                        } else {
-                            failures = 0
+                        case .ok(nil, let newEtag):
+                            etag = newEtag
                             if lastLog != "none" { print("[perch] build poll \(key): no runs found"); lastLog = "none" }
                         }
                     } catch {

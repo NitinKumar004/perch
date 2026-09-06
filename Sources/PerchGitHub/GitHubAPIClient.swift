@@ -73,8 +73,17 @@ public struct GitHubAPIClient: Sendable {
         return try JSONSerialization.data(withJSONObject: data)
     }
 
-    /// The latest Actions run for `branch`, or `nil` if the repo has none.
-    public func latestBuild(owner: String, repo: String, branch: String) async throws -> BuildObservation? {
+    /// The result of a conditional build fetch: unchanged (a free 304), or a
+    /// fresh observation plus the new ETag to send next time.
+    public enum BuildFetch: Sendable {
+        case notModified
+        case ok(BuildObservation?, etag: String?)
+    }
+
+    /// The latest Actions run for `branch`, sent conditionally with `etag`.
+    /// A 304 (unchanged) is returned as `.notModified` and — when authenticated —
+    /// does not count against the REST rate limit.
+    public func latestBuild(owner: String, repo: String, branch: String, etag: String?) async throws -> BuildFetch {
         let token = try await auth.validAccessToken()
 
         // Build the URL via URLComponents so the query string is a real query,
@@ -89,26 +98,26 @@ public struct GitHubAPIClient: Sendable {
         ]
         guard let url = components?.url else { throw GitHubAuthError.decoding }
 
-        let request = HTTPRequest(
-            url: url,
-            method: "GET",
-            headers: [
-                "Authorization": "Bearer \(token)",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "User-Agent": "Perch",
-            ]
-        )
-        let response = try await http.send(request)
+        var headers = [
+            "Authorization": "Bearer \(token)",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "Perch",
+        ]
+        if let etag { headers["If-None-Match"] = etag }
+
+        let response = try await http.send(HTTPRequest(url: url, method: "GET", headers: headers))
+        if response.status == 304 { return .notModified }
         guard (200..<300).contains(response.status) else {
             throw GitHubAuthError.http(status: response.status)
         }
+        let newEtag = response.header("ETag")
         guard let decoded = try? Self.decoder.decode(RunsResponse.self, from: response.body) else {
             throw GitHubAuthError.decoding
         }
-        guard let run = decoded.workflowRuns.first else { return nil }
+        guard let run = decoded.workflowRuns.first else { return .ok(nil, etag: newEtag) }
         let duration = max(0, Int(run.updatedAt.timeIntervalSince(run.runStartedAt ?? run.updatedAt)))
-        return BuildObservation(
+        let observation = BuildObservation(
             state: run.runState,
             updatedAt: run.updatedAt,
             url: run.htmlUrl,
@@ -117,6 +126,7 @@ public struct GitHubAPIClient: Sendable {
             shortSHA: String((run.headSha ?? "").prefix(7)),
             durationSeconds: duration
         )
+        return .ok(observation, etag: newEtag)
     }
 
     private static var decoder: JSONDecoder {

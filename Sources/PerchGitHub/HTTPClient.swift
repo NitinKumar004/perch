@@ -26,6 +26,13 @@ public struct HTTPResponse: Sendable {
         self.body = body
         self.headers = headers
     }
+
+    /// Case-insensitive header lookup (HTTP header names aren't case-sensitive,
+    /// and servers vary — "ETag" vs "Etag").
+    public func header(_ name: String) -> String? {
+        let lower = name.lowercased()
+        return headers.first { $0.key.lowercased() == lower }?.value
+    }
 }
 
 public protocol HTTPClient: Sendable {

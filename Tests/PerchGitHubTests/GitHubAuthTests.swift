@@ -166,10 +166,16 @@ private func runsJSON(status: String, conclusion: String?) -> String {
     """
 }
 
+/// Unwrap the observation from a BuildFetch (nil for notModified/no-runs).
+private func observation(_ fetch: GitHubAPIClient.BuildFetch) -> BuildObservation? {
+    if case .ok(let obs, _) = fetch { return obs }
+    return nil
+}
+
 @Test func latestBuildClassifiesSuccessAsPassing() async throws {
     let http = FakeHTTPClient([json(runsJSON(status: "completed", conclusion: "success"))])
     let client = GitHubAPIClient(http: http, auth: connectedAuth())
-    let obs = try await client.latestBuild(owner: "o", repo: "r", branch: "main")
+    let obs = observation(try await client.latestBuild(owner: "o", repo: "r", branch: "main", etag: nil))
     #expect(obs?.state == .passing)
     #expect(obs?.url == "https://github.com/o/r/actions/runs/1")
 }
@@ -177,22 +183,29 @@ private func runsJSON(status: String, conclusion: String?) -> String {
 @Test func latestBuildClassifiesInProgressAsRunning() async throws {
     let http = FakeHTTPClient([json(runsJSON(status: "in_progress", conclusion: nil))])
     let client = GitHubAPIClient(http: http, auth: connectedAuth())
-    let obs = try await client.latestBuild(owner: "o", repo: "r", branch: "main")
+    let obs = observation(try await client.latestBuild(owner: "o", repo: "r", branch: "main", etag: nil))
     #expect(obs?.state == .running)
 }
 
 @Test func latestBuildClassifiesFailureAsFailing() async throws {
     let http = FakeHTTPClient([json(runsJSON(status: "completed", conclusion: "failure"))])
     let client = GitHubAPIClient(http: http, auth: connectedAuth())
-    let obs = try await client.latestBuild(owner: "o", repo: "r", branch: "main")
+    let obs = observation(try await client.latestBuild(owner: "o", repo: "r", branch: "main", etag: nil))
     #expect(obs?.state == .failing)
 }
 
 @Test func latestBuildReturnsNilWhenNoRuns() async throws {
     let http = FakeHTTPClient([json(#"{"total_count":0,"workflow_runs":[]}"#)])
     let client = GitHubAPIClient(http: http, auth: connectedAuth())
-    let obs = try await client.latestBuild(owner: "o", repo: "r", branch: "main")
+    let obs = observation(try await client.latestBuild(owner: "o", repo: "r", branch: "main", etag: nil))
     #expect(obs == nil)
+}
+
+@Test func latestBuild304ReturnsNotModified() async throws {
+    let http = FakeHTTPClient([HTTPResponse(status: 304, body: Data())])
+    let client = GitHubAPIClient(http: http, auth: connectedAuth())
+    let fetch = try await client.latestBuild(owner: "o", repo: "r", branch: "main", etag: "\"abc\"")
+    guard case .notModified = fetch else { Issue.record("expected notModified"); return }
 }
 
 @Test func pullRequestCountReadsTotalCount() async throws {

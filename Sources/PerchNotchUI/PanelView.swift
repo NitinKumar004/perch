@@ -11,15 +11,19 @@ public struct PanelActions: Sendable {
     public var onSettings: @MainActor () -> Void
     public var onReload: @MainActor () -> Void
     public var onQuit: @MainActor () -> Void
+    /// Handles a module's detail-row action (e.g. a timer's "timer.toggle:25").
+    public var onAction: @MainActor (String) -> Void
 
     public init(onConnect: @escaping @MainActor () -> Void = {},
                 onSettings: @escaping @MainActor () -> Void = {},
                 onReload: @escaping @MainActor () -> Void = {},
-                onQuit: @escaping @MainActor () -> Void = {}) {
+                onQuit: @escaping @MainActor () -> Void = {},
+                onAction: @escaping @MainActor (String) -> Void = { _ in }) {
         self.onConnect = onConnect
         self.onSettings = onSettings
         self.onReload = onReload
         self.onQuit = onQuit
+        self.onAction = onAction
     }
 }
 
@@ -132,7 +136,10 @@ struct PanelView: View {
         .padding(.vertical, 6)
         .contentShape(Rectangle())
 
-        if let urlString = row.url, let url = URL(string: urlString) {
+        if let action = row.action {
+            Button { actions.onAction(action) } label: { content }
+                .buttonStyle(.plain)
+        } else if let urlString = row.url, let url = URL(string: urlString) {
             Button { NSWorkspace.shared.open(url) } label: { content }
                 .buttonStyle(.plain)
         } else {

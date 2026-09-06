@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let configStore = ConfigStore()
     private let settingsWindow = SettingsWindowController()
     private let notifier = Notifier()
+    private let timerController = TimerController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installStatusItem()
@@ -36,7 +37,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onConnect: { [weak self] in self?.startConnect() },
             onSettings: { [weak self] in self?.openSettings() },
             onReload: { [weak self] in self?.applyConfig() },
-            onQuit: { NSApp.terminate(nil) }
+            onQuit: { NSApp.terminate(nil) },
+            onAction: { [weak self] action in self?.handleAction(action) }
         )
         let controller = NotchWindowController(model: model, onActivate: { [weak self] in
             self?.handleActivate()
@@ -60,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let config = configStore.load()
         guard let preset = config.current else { return }
 
-        let factory = ModuleFactory(apiClient: GitHubAPIClient(auth: auth))
+        let factory = ModuleFactory(apiClient: GitHubAPIClient(auth: auth), timerController: timerController)
         let binder = SlotBinder(model: model, context: ModuleContext(), notifier: notifier)
 
         // Group every placement (pills + panel rows) by (module id + settings)
@@ -113,6 +115,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// when needed.
     private func refreshConnectedFlag() {
         Task { model.isConnected = await auth.isConnected() }
+    }
+
+    /// Route a module's detail-row action. Today: focus-timer pause/reset,
+    /// encoded as "timer.toggle:<id>" / "timer.reset:<id>".
+    private func handleAction(_ action: String) {
+        let parts = action.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return }
+        let (verb, id) = (parts[0], parts[1])
+        Task { [timerController] in
+            switch verb {
+            case "timer.toggle": await timerController.togglePause(id: id, now: Date())
+            case "timer.reset":  await timerController.reset(id: id, now: Date())
+            default: break
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

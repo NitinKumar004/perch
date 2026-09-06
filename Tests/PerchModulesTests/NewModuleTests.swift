@@ -13,10 +13,35 @@ import PerchModuleKit
 }
 
 @Test func timerFaceDoneAtZero() {
-    let m = TimerModule()
-    #expect(m.face(for: 0, in: .rightPill).tint == .good)
-    #expect(m.face(for: 300, in: .rightPill).tint == .accent)
-    #expect(m.face(for: 300, in: .rightPill).text == "5:00")
+    let m = TimerModule(controller: TimerController())
+    func s(_ r: Int, paused: Bool = false) -> TimerState { TimerState(remaining: r, isPaused: paused, id: "25") }
+    #expect(m.face(for: s(0), in: .rightPill).tint == .good)
+    #expect(m.face(for: s(300), in: .rightPill).tint == .accent)
+    #expect(m.face(for: s(300), in: .rightPill).text == "5:00")
+    // Detail rows expose pause + reset controls.
+    let rows = m.detail(for: s(300))
+    #expect(rows.contains { $0.action == "timer.toggle:25" })
+    #expect(rows.contains { $0.action == "timer.reset:25" })
+    #expect(m.face(for: s(300, paused: true), in: .rightPill).symbolName == "pause.circle")
+}
+
+@Test func timerControllerPausesAndResets() async {
+    let c = TimerController()
+    let t0 = Date(timeIntervalSince1970: 1000)
+    // 10s elapse while running.
+    _ = await c.elapsed(id: "x", now: t0)
+    let e1 = await c.elapsed(id: "x", now: t0.addingTimeInterval(10))
+    #expect(Int(e1.elapsed) == 10)
+    // Pause at t0+10, then 100s of wall time pass — elapsed stays ~10.
+    await c.togglePause(id: "x", now: t0.addingTimeInterval(10))
+    let paused = await c.elapsed(id: "x", now: t0.addingTimeInterval(110))
+    #expect(paused.isPaused)
+    #expect(Int(paused.elapsed) == 10)
+    // Reset → back to zero, running.
+    await c.reset(id: "x", now: t0.addingTimeInterval(110))
+    let afterReset = await c.elapsed(id: "x", now: t0.addingTimeInterval(115))
+    #expect(!afterReset.isPaused)
+    #expect(Int(afterReset.elapsed) == 5)
 }
 
 // MARK: - Deploy / health probe

@@ -11,9 +11,11 @@ import PerchConfig
 /// and nothing in the app or the config engine changes.
 public struct ModuleFactory: Sendable {
     private let apiClient: GitHubAPIClient
+    private let timerController: TimerController
 
-    public init(apiClient: GitHubAPIClient) {
+    public init(apiClient: GitHubAPIClient, timerController: TimerController) {
         self.apiClient = apiClient
+        self.timerController = timerController
     }
 
     /// Build the module named by `binding`, applying its settings, or `nil` if
@@ -40,11 +42,11 @@ public struct ModuleFactory: Sendable {
         case BatteryModule.descriptor.id:
             return AnyNotchModule(BatteryModule())
 
-        case TimerModule.descriptor.id:
-            return AnyNotchModule(TimerModule())
-
         case DeployModule.descriptor.id:
             return AnyNotchModule(DeployModule())
+
+        case TimerModule.descriptor.id:
+            return AnyNotchModule(TimerModule(controller: timerController))
 
         case ClockModule.descriptor.id:
             return AnyNotchModule(ClockModule())

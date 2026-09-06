@@ -14,12 +14,17 @@ final class SlotBinder {
     private let model: NotchViewModel
     private let baseContext: ModuleContext
     private let notifier: Notifier
+    private let onCritical: () -> Void
     private var tasks: [Task<Void, Never>] = []
 
-    init(model: NotchViewModel, context: ModuleContext, notifier: Notifier) {
+    /// - Parameter onCritical: called once each time a bound module's pill
+    ///   transitions into a critical (red) state, so the shell can auto-open.
+    init(model: NotchViewModel, context: ModuleContext, notifier: Notifier,
+         onCritical: @escaping () -> Void = {}) {
         self.model = model
         self.baseContext = context
         self.notifier = notifier
+        self.onCritical = onCritical
     }
 
     /// Seed a panel row so ordering is stable before the first value arrives.
@@ -40,9 +45,14 @@ final class SlotBinder {
                     pills: Set<Slot>, panelIDs: [String]) {
         let context = ModuleContext(clock: baseContext.clock, settings: settings)
         let stream = module.renderStream(context, slot: .panel)  // slot-independent face
-        let task = Task { @MainActor [model, notifier] in
+        let task = Task { @MainActor [model, notifier, onCritical] in
+            var wasCritical = false
             for await render in stream {
                 if let alert = render.alert { notifier.post(alert) }
+                // Fire on the transition into red, not on every red poll.
+                let isCritical = render.pill.face.tint == .critical
+                if isCritical && !wasCritical { onCritical() }
+                wasCritical = isCritical
                 if pills.contains(.leftPill) { model.leftPill = render.pill }
                 if pills.contains(.rightPill) { model.rightPill = render.pill }
                 for id in panelIDs {

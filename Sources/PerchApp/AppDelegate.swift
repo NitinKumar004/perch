@@ -26,10 +26,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let configStore = ConfigStore()
     private let settingsWindow = SettingsWindowController()
+    private let welcomeWindow = WelcomeWindowController()
     private let notifier = Notifier()
     private let timerController = TimerController()
+    private var configWatcher: ConfigWatcher?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let isFirstRun = !FileManager.default.fileExists(atPath: ConfigStore.defaultFileURL.path)
         installStatusItem()
         notifier.requestAuthorization()
 
@@ -48,6 +51,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         applyConfig()
         refreshConnectItem()
+
+        // Hot-reload: re-wire the notch whenever layout.json changes on disk.
+        let watcher = ConfigWatcher(fileURL: ConfigStore.defaultFileURL) { [weak self] in
+            self?.applyConfig()
+        }
+        watcher.start()
+        configWatcher = watcher
+
+        // First launch: greet the user and point them at Connect + Settings.
+        if isFirstRun { showWelcome() }
     }
 
     /// Read the user's layout.json and wire the notch from it. Called at launch
@@ -60,11 +73,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.panelItems = []   // reset so re-applying never duplicates rows
 
         let config = configStore.load()
+        notifier.configure(config.global)
+        configWatcher?.markApplied()   // our own read isn't an "external" change
         windowController?.setPosition(HUDPosition(rawValue: config.hudPosition) ?? .flank)
         guard let preset = config.current else { return }
 
+        let autoOpenOnRed = config.global.autoOpenOnRed
         let factory = ModuleFactory(apiClient: GitHubAPIClient(auth: auth), timerController: timerController)
-        let binder = SlotBinder(model: model, context: ModuleContext(), notifier: notifier)
+        let binder = SlotBinder(model: model, context: ModuleContext(), notifier: notifier,
+                                onCritical: { [weak self] in
+                                    guard autoOpenOnRed else { return }
+                                    self?.autoOpenPanel()
+                                })
 
         // Group every placement (pills + panel rows) by (module id + settings)
         // so identical configs share one poll instead of each fetching.
@@ -112,6 +132,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if model.isPanelOpen { refreshConnectedFlag() }
     }
 
+    /// Pop the panel because something went red (auto-open-on-red). No-op if it's
+    /// already open, so a flapping build doesn't yank focus repeatedly.
+    private func autoOpenPanel() {
+        guard !model.isPanelOpen else { return }
+        model.isPanelOpen = true
+        windowController?.setPanelOpen(true)
+        refreshConnectedFlag()
+    }
+
     /// Keep the model's connected flag current so the panel shows Connect only
     /// when needed.
     private func refreshConnectedFlag() {
@@ -134,6 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        configWatcher?.stop()
         binder?.cancelAll()
     }
 
@@ -185,6 +215,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Re-read the config and re-wire the notch — no restart needed.
     @objc private func reloadConfig() {
         applyConfig()
+    }
+
+    /// First-launch greeting, shown once when there's no config yet.
+    private func showWelcome() {
+        welcomeWindow.show(
+            onConnect: { [weak self] in self?.startConnect() },
+            onOpenSettings: { [weak self] in self?.openSettings() }
+        )
     }
 
     /// Open the native settings window; saving persists the config and re-wires

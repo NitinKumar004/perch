@@ -71,3 +71,32 @@ private func tempConfigURL() -> URL {
                               presets: ["only": Preset(rightPill: SlotBinding(module: "system.clock"))])
     #expect(config.current?.rightPill?.module == "system.clock")
 }
+
+@Test func globalSettingsRoundTripAndDefaultOnOldFile() throws {
+    let url = tempConfigURL()
+    let store = ConfigStore(fileURL: url)
+    var config = LayoutConfig(activePreset: "default", presets: ["default": Preset()])
+    config.global = GlobalSettings(autoOpenOnRed: true, quietHours: "22:00-08:00")
+    try store.save(config)
+    #expect(store.load().global == config.global)
+
+    // A v1-style file with no `global` key still loads with defaults.
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data(#"{"schemaVersion":1,"activePreset":"default","presets":{"default":{"panel":[]}}}"#.utf8).write(to: url)
+    let loaded = store.load()
+    #expect(loaded.global == GlobalSettings())      // defaulted, not crashed
+    #expect(loaded.schemaVersion == LayoutConfig.currentVersion)  // migrated forward
+}
+
+@Test func quietHoursWindowHandlesMidnightWrap() {
+    let wrap = GlobalSettings(quietHours: "22:00-08:00")
+    #expect(wrap.isQuiet(minuteOfDay: 23 * 60))       // 23:00 → quiet
+    #expect(wrap.isQuiet(minuteOfDay: 2 * 60))        // 02:00 → quiet
+    #expect(!wrap.isQuiet(minuteOfDay: 12 * 60))      // noon → loud
+    let sameDay = GlobalSettings(quietHours: "09:00-17:00")
+    #expect(sameDay.isQuiet(minuteOfDay: 10 * 60))
+    #expect(!sameDay.isQuiet(minuteOfDay: 20 * 60))
+    // Malformed / empty → never quiet.
+    #expect(!GlobalSettings(quietHours: "nonsense").isQuiet(minuteOfDay: 600))
+    #expect(!GlobalSettings().isQuiet(minuteOfDay: 600))
+}

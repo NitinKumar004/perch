@@ -19,6 +19,8 @@ struct SettingsView: View {
     @State private var tokenText = ""
     @State private var launchAtLogin = LoginItem.isEnabled
     @State private var hudPosition: String
+    @State private var autoOpenOnRed: Bool
+    @State private var quietHours: String
 
     private let presetName: String
     private let baseConfig: LayoutConfig
@@ -50,6 +52,8 @@ struct SettingsView: View {
         _right = State(initialValue: SlotEditor(binding: preset.rightPill))
         _panel = State(initialValue: preset.panel.map(SlotEditor.init(binding:)))
         _hudPosition = State(initialValue: config.hudPosition)
+        _autoOpenOnRed = State(initialValue: config.global.autoOpenOnRed)
+        _quietHours = State(initialValue: config.global.quietHours ?? "")
     }
 
     var body: some View {
@@ -60,6 +64,8 @@ struct SettingsView: View {
                     connectionCard
                     Divider()
                     positionSection
+                    Divider()
+                    behaviourSection
                     Divider()
                     slotSection(title: "Left pill",
                                 caption: "The icon just left of the notch.",
@@ -111,6 +117,23 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             Text("Use “Right of the notch” if the pills overlap your menus; “Below” suits non-notch displays.")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Behaviour
+
+    private var behaviourSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Behaviour").font(.system(size: 13, weight: .semibold))
+            Toggle("Open the panel automatically when something goes red",
+                   isOn: $autoOpenOnRed)
+                .toggleStyle(.checkbox).font(.system(size: 12))
+            HStack(spacing: 8) {
+                Text("Quiet hours").font(.system(size: 12)).frame(width: 90, alignment: .leading)
+                TextField("22:00-08:00", text: $quietHours)
+                    .textFieldStyle(.roundedBorder).frame(width: 130)
+                Text("no notifications in this window").font(.system(size: 11)).foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -324,6 +347,9 @@ struct SettingsView: View {
         preset.panel = panel.compactMap { $0.toBinding() }
         config.presets[config.activePreset] = preset
         config.hudPosition = hudPosition
+        let trimmed = quietHours.trimmingCharacters(in: .whitespaces)
+        config.global = GlobalSettings(autoOpenOnRed: autoOpenOnRed,
+                                       quietHours: trimmed.isEmpty ? nil : trimmed)
         onSave(config)
     }
 

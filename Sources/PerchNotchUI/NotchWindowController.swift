@@ -84,7 +84,13 @@ public final class NotchWindowController {
         let collapsedHeight = max(metrics.notchHeight, 32)
         let height = model.isPanelOpen ? collapsedHeight + panelDrop : collapsedHeight
         let originX = metrics.screenFrame.midX - width / 2
-        let originY = metrics.screenFrame.maxY - height
+
+        // On a real notch, macOS reserves the center so the pills flank it in the
+        // menu bar cleanly. On a NON-notch screen there's no reserved gap, so
+        // sitting in the menu bar collides with the app's menus / status items —
+        // hang the HUD just below the menu bar instead.
+        let menuBarDrop = metrics.hasNotch ? 0 : NSStatusBar.system.thickness
+        let originY = metrics.screenFrame.maxY - height - menuBarDrop
         let frame = NSRect(x: originX, y: originY, width: width, height: height)
 
         if animated {

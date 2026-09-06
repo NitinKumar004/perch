@@ -34,6 +34,14 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     func requestAuthorization() {
         guard isAvailable else { return }
         UNUserNotificationCenter.current().delegate = self
+        Self.askForAuthorization()
+    }
+
+    /// The permission prompt's completion runs on a background queue. If the
+    /// closure inherits this `@MainActor` type's isolation, Swift 6's runtime
+    /// executor check traps (SIGTRAP) and crashes the app on launch. Issuing the
+    /// request from a `nonisolated static` keeps the completion actor-free.
+    private nonisolated static func askForAuthorization() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 

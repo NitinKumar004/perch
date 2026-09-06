@@ -51,6 +51,8 @@ public struct GitHubPRsModule: NotchModule {
             let store = VersionedStore<String, PRState>(clock: clock)
             let key = "\(queue.rawValue)#\(repo ?? "*")"
             var lastError: String?   // so a repeating error is logged once, not every poll
+            var failures = 0
+            let backoff = Backoff(base: 15, cap: 300)
 
             let task = Task {
                 continuation.yield(Snapshot(value: .empty, freshness: .unknown, asOf: clock.now()))
@@ -60,28 +62,33 @@ public struct GitHubPRsModule: NotchModule {
                     do {
                         let observation = try await client.pullRequestList(queue: queue, repo: repo, now: clock.now())
                         if lastError != nil { print("[perch] pr poll \(key): recovered"); lastError = nil }
+                        failures = 0
                         let state = PRState(count: observation.total, items: observation.items, repoScope: repo)
                         let accepted = await store.apply(state, forKey: key, version: observation.observedAt)
                         if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
                             continuation.yield(snapshot)
                         }
                     } catch {
+                        failures += 1
                         let desc = "\(error)"
                         if lastError != desc { print("[perch] pr poll \(key): error \(desc)"); lastError = desc }
                         // A 4xx on a repo-scoped query means the current credential
                         // can't see that repo — a private repo the GitHub App isn't
                         // installed on (GitHub returns 422 for that). Show the honest
-                        // "needs access" hint instead of an error loop.
+                        // "needs access" hint instead of an error loop, and stop
+                        // hammering it (it won't change until the user acts).
                         if case GitHubAuthError.http(let status) = error,
                            (400..<500).contains(status), let repo {
                             let noAccess = PRState(count: 0, items: [], repoScope: repo)
                             continuation.yield(Snapshot(value: noAccess, freshness: .unknown, asOf: clock.now()))
+                            nextDelay = backoff.cap
                         } else if let stale = await store.snapshot(forKey: key, ttl: 0) {
                             continuation.yield(stale)
+                            nextDelay = backoff.delay(consecutiveFailures: failures)
                         } else {
                             continuation.yield(Snapshot(value: .empty, freshness: .error("\(error)"), asOf: clock.now()))
+                            nextDelay = backoff.delay(consecutiveFailures: failures)
                         }
-                        nextDelay = 15
                     }
                     try? await Task.sleep(for: .seconds(nextDelay))
                 }

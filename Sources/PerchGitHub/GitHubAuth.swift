@@ -19,6 +19,8 @@ public actor GitHubAuth {
     /// against caching a `nil` and re-hitting the Keychain forever.
     private var cachedToken: GitHubToken?
     private var loaded = false
+    /// The in-flight refresh, shared by concurrent callers (single-flight).
+    private var refreshTask: Task<GitHubToken, Error>?
 
     public init(
         flow: GitHubDeviceFlow,
@@ -55,16 +57,39 @@ public actor GitHubAuth {
 
     /// A currently-valid access token, refreshing first if it's about to expire.
     /// Reads the Keychain only on the first call; refresh re-saves + re-caches.
+    ///
+    /// Refresh is **single-flight**: GitHub App refresh tokens are single-use, so
+    /// two concurrent callers must not each fire a refresh (the second would
+    /// reuse a spent token and can invalidate the whole grant). Concurrent
+    /// callers await one shared refresh task instead.
     public func validAccessToken() async throws -> String {
         guard let token = try currentToken() else { throw GitHubAuthError.notConnected }
 
-        if token.isExpiring(within: refreshBuffer, now: clock.now()) {
-            guard let refreshToken = token.refreshToken else { throw GitHubAuthError.cannotRefresh }
-            let refreshed = try await flow.refresh(refreshToken: refreshToken, now: clock.now())
-            try persist(refreshed)
-            return refreshed.accessToken
+        guard token.isExpiring(within: refreshBuffer, now: clock.now()) else {
+            return token.accessToken
         }
-        return token.accessToken
+        guard token.refreshToken != nil else { throw GitHubAuthError.cannotRefresh }
+
+        // Join an in-flight refresh if one exists…
+        if let existing = refreshTask {
+            return try await existing.value.accessToken
+        }
+        // …otherwise start it, and clear the slot when done so a later expiry
+        // can refresh again.
+        let newTask = Task { [self] in try await performRefresh() }
+        refreshTask = newTask
+        defer { refreshTask = nil }
+        return try await newTask.value.accessToken
+    }
+
+    /// The actual refresh, run once by the single-flight task above.
+    private func performRefresh() async throws -> GitHubToken {
+        guard let current = try currentToken(), let refreshToken = current.refreshToken else {
+            throw GitHubAuthError.cannotRefresh
+        }
+        let refreshed = try await flow.refresh(refreshToken: refreshToken, now: clock.now())
+        try persist(refreshed)
+        return refreshed
     }
 
     /// Start a device login. Present the returned `userCode` + `verificationUri`

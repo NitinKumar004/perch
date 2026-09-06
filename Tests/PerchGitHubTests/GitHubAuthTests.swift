@@ -103,6 +103,31 @@ private let epoch = Date(timeIntervalSince1970: 1_000_000)
     #expect(await http.requestCount == 1) // it actually refreshed
 }
 
+@Test func concurrentCallersRefreshOnlyOnce() async throws {
+    // Single-flight: many callers hitting an expiring token must trigger just
+    // one refresh, not one per caller (refresh tokens are single-use).
+    let clock = TestClock(epoch)
+    let expiring = GitHubToken(accessToken: "old", refreshToken: "ghr",
+                               expiresAt: epoch.addingTimeInterval(60),
+                               refreshTokenExpiresAt: epoch.addingTimeInterval(999_999))
+    let http = FakeHTTPClient([json(#"""
+    {"access_token":"new","token_type":"bearer","expires_in":28800,"refresh_token":"ghr2","refresh_token_expires_in":15897600}
+    """#)])
+    let auth = GitHubAuth(flow: GitHubDeviceFlow(http: http, clientID: "cid"),
+                          store: InMemoryTokenStore(expiring), clock: clock, refreshBuffer: 1800)
+
+    // Fire 10 concurrent token requests.
+    let tokens = try await withThrowingTaskGroup(of: String.self) { group in
+        for _ in 0..<10 { group.addTask { try await auth.validAccessToken() } }
+        var all: [String] = []
+        for try await t in group { all.append(t) }
+        return all
+    }
+
+    #expect(tokens.allSatisfy { $0 == "new" })
+    #expect(await http.requestCount == 1)  // exactly one refresh, not ten
+}
+
 @Test func validAccessTokenReturnsExistingWhenFresh() async throws {
     let clock = TestClock(epoch)
     let fresh = GitHubToken(accessToken: "keep", refreshToken: "r",

@@ -40,6 +40,7 @@ private let v200 = Date(timeIntervalSince1970: 200)
 
 @Test func freshnessGoesStaleAfterTTL() async {
     let clock = TestClock()
+    let confirmedAt = clock.now()   // when the value is received/confirmed
     let store = VersionedStore<String, Int>(clock: clock)
 
     _ = await store.apply(7, forKey: "cpu", version: v100)
@@ -50,7 +51,8 @@ private let v200 = Date(timeIntervalSince1970: 200)
     clock.advance(by: 120) // now older than the 60s TTL
 
     let stale = await store.snapshot(forKey: "cpu", ttl: 60)
-    #expect(stale?.freshness == .stale(since: v100))
+    // Staleness is measured from confirmation time, not the source version.
+    #expect(stale?.freshness == .stale(since: confirmedAt))
     #expect(stale?.value == 7) // a stale value is still the last known value
 }
 

@@ -45,7 +45,10 @@ public actor VersionedStore<Key: Hashable & Sendable, Value: Sendable> {
     public func snapshot(forKey key: Key, ttl: TimeInterval) -> Snapshot<Value>? {
         guard let entry = entries[key] else { return nil }
         let age = clock.now().timeIntervalSince(entry.receivedAt)
-        let freshness: Freshness = age > ttl ? .stale(since: entry.version) : .live
+        // Staleness is measured from when we last *confirmed* the value
+        // (receivedAt), not the source event time — otherwise the "as of Xm ago"
+        // label would report the commit/run time, wildly overstating staleness.
+        let freshness: Freshness = age > ttl ? .stale(since: entry.receivedAt) : .live
         return Snapshot(value: entry.value, freshness: freshness, asOf: entry.version)
     }
 

@@ -54,6 +54,8 @@ public struct GitHubBuildsModule: NotchModule {
             let store = VersionedStore<String, BuildInfo>(clock: clock)
             let key = "\(owner)/\(repo)@\(branch)"
             var lastLog: String?   // log only when the outcome changes
+            var failures = 0       // for exponential backoff on the error path
+            let backoff = Backoff(base: 10, cap: 300)
 
             let task = Task {
                 continuation.yield(Snapshot(value: .unknown, freshness: .unknown, asOf: clock.now()))
@@ -71,15 +73,18 @@ public struct GitHubBuildsModule: NotchModule {
                                 url: observation.url)
                             let line = "\(info.state)"
                             if lastLog != line { print("[perch] build poll \(key): \(line)"); lastLog = line }
+                            failures = 0
                             let accepted = await store.apply(info, forKey: key, version: observation.updatedAt)
                             if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
                                 continuation.yield(snapshot)
                             }
                             nextDelay = (info.state == .running) ? 15 : 60
-                        } else if lastLog != "none" {
-                            print("[perch] build poll \(key): no runs found"); lastLog = "none"
+                        } else {
+                            failures = 0
+                            if lastLog != "none" { print("[perch] build poll \(key): no runs found"); lastLog = "none" }
                         }
                     } catch {
+                        failures += 1
                         let line = "error \(error)"
                         if lastLog != line { print("[perch] build poll \(key): \(line)"); lastLog = line }
                         if let stale = await store.snapshot(forKey: key, ttl: 0) {
@@ -87,7 +92,9 @@ public struct GitHubBuildsModule: NotchModule {
                         } else {
                             continuation.yield(Snapshot(value: .unknown, freshness: .error("\(error)"), asOf: clock.now()))
                         }
-                        nextDelay = 8
+                        // Back off exponentially; auth failures wait the full cap
+                        // (retrying won't help until the user reconnects).
+                        nextDelay = Self.isAuthError(error) ? backoff.cap : backoff.delay(consecutiveFailures: failures)
                     }
                     try? await Task.sleep(for: .seconds(nextDelay))
                 }
@@ -125,6 +132,13 @@ public struct GitHubBuildsModule: NotchModule {
             id: "build-failing-\(value.shortSHA.isEmpty ? value.url : value.shortSHA)",
             title: "Build failing",
             body: "\(value.workflowName.isEmpty ? "CI" : value.workflowName)\(branch)")
+    }
+
+    /// A 401 (revoked/expired token) won't fix itself by retrying — back off hard.
+    static func isAuthError(_ error: Error) -> Bool {
+        if case GitHubAuthError.http(let status) = error, status == 401 { return true }
+        if case GitHubAuthError.notConnected = error { return true }
+        return false
     }
 
     private static func map(_ state: RunState) -> BuildState {

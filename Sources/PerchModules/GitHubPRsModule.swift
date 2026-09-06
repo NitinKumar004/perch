@@ -126,7 +126,8 @@ public struct GitHubPRsModule: NotchModule {
             id: "prs-\(value.count)-\(newest?.number ?? 0)",
             title: "Review requested",
             body: newest.map { "#\($0.number) \($0.title)" }
-                ?? "\(value.count) PR\(value.count == 1 ? "" : "s") waiting on you")
+                ?? "\(value.count) PR\(value.count == 1 ? "" : "s") waiting on you",
+            url: newest?.url)
     }
 
     public func contextLabel(_ context: ModuleContext) -> String? {

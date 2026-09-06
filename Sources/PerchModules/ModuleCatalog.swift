@@ -124,6 +124,11 @@ public enum ModuleCatalog {
                 summary: ClipboardModule.descriptor.summary,
                 requiresConnection: false, settings: []),
             CatalogEntry(
+                id: FileShelfModule.descriptor.id,
+                name: FileShelfModule.descriptor.name,
+                summary: FileShelfModule.descriptor.summary,
+                requiresConnection: false, settings: []),
+            CatalogEntry(
                 id: PortMonitorModule.descriptor.id,
                 name: PortMonitorModule.descriptor.name,
                 summary: PortMonitorModule.descriptor.summary,
@@ -145,6 +150,15 @@ public enum ModuleCatalog {
                 requiresConnection: false,
                 settings: [
                     ModuleSetting(key: "minutes", label: "Minutes", placeholder: "25", defaultValue: "25"),
+                ]),
+            CatalogEntry(
+                id: CalendarModule.descriptor.id,
+                name: CalendarModule.descriptor.name,
+                summary: CalendarModule.descriptor.summary,
+                requiresConnection: false,
+                settings: [
+                    ModuleSetting(key: "lookaheadHours", label: "Look ahead (hours)", placeholder: "12", defaultValue: "12"),
+                    Self.refreshSetting(placeholder: "30"),
                 ]),
             CatalogEntry(
                 id: ClockModule.descriptor.id,

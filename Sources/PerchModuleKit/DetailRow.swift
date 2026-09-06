@@ -44,11 +44,15 @@ public struct ModuleAlert: Equatable, Sendable {
     public let id: String
     public let title: String
     public let body: String
+    /// If set, tapping the notification opens this URL (the failing build, the
+    /// PR that needs review), so an alert is one click from the thing it's about.
+    public let url: String?
 
-    public init(id: String, title: String, body: String) {
+    public init(id: String, title: String, body: String, url: String? = nil) {
         self.id = id
         self.title = title
         self.body = body
+        self.url = url
     }
 }
 

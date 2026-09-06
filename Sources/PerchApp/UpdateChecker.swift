@@ -13,6 +13,8 @@ enum PerchVersion {
 struct UpdateInfo: Sendable, Equatable {
     let version: String
     let pageURL: String
+    /// The downloadable app zip for in-app install.
+    let zipURL: String
 }
 
 /// Checks GitHub Releases for a newer Perch and reports it. This is the honest
@@ -42,7 +44,9 @@ struct UpdateChecker: Sendable {
         }
         guard SemanticVersion.isNewer(release.tagName, than: currentVersion) else { return nil }
         let page = release.htmlURL ?? "https://github.com/NitinKumar004/perch/releases/latest"
-        return UpdateInfo(version: release.tagName, pageURL: page)
+        // The release workflow always publishes Perch.zip as a release asset.
+        let zip = "https://github.com/NitinKumar004/perch/releases/download/\(release.tagName)/Perch.zip"
+        return UpdateInfo(version: release.tagName, pageURL: page, zipURL: zip)
     }
 
     private struct Release: Decodable {

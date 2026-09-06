@@ -13,12 +13,15 @@ public struct ModuleFactory: Sendable {
     private let apiClient: GitHubAPIClient
     private let timerController: TimerController
     private let clipboardController: ClipboardController
+    private let fileShelfController: FileShelfController
 
     public init(apiClient: GitHubAPIClient, timerController: TimerController,
-                clipboardController: ClipboardController) {
+                clipboardController: ClipboardController,
+                fileShelfController: FileShelfController) {
         self.apiClient = apiClient
         self.timerController = timerController
         self.clipboardController = clipboardController
+        self.fileShelfController = fileShelfController
     }
 
     /// Build the module named by `binding`, applying its settings, or `nil` if
@@ -51,6 +54,9 @@ public struct ModuleFactory: Sendable {
         case PortMonitorModule.descriptor.id:
             return AnyNotchModule(PortMonitorModule())
 
+        case FileShelfModule.descriptor.id:
+            return AnyNotchModule(FileShelfModule(controller: fileShelfController))
+
         case MemoryModule.descriptor.id:
             return AnyNotchModule(MemoryModule())
 
@@ -65,6 +71,9 @@ public struct ModuleFactory: Sendable {
 
         case ClockModule.descriptor.id:
             return AnyNotchModule(ClockModule())
+
+        case CalendarModule.descriptor.id:
+            return AnyNotchModule(CalendarModule())
 
         case FakeBuildModule.descriptor.id:
             return AnyNotchModule(FakeBuildModule())

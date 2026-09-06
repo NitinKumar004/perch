@@ -23,6 +23,11 @@
     <true/>
     <key>NSHumanReadableCopyright</key>
     <string>MIT License</string>
+    <!-- The Next-meeting module reads the local Calendar to show your next event. -->
+    <key>NSCalendarsUsageDescription</key>
+    <string>Perch shows your next calendar event and a countdown in the notch. Your events stay on your Mac.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Perch shows your next calendar event and a countdown in the notch. Your events stay on your Mac.</string>
     <key>NSSupportsAutomaticTermination</key>
     <false/>
     <key>NSSupportsSuddenTermination</key>

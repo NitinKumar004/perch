@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 import PerchCore
 import PerchModuleKit
 
@@ -13,17 +14,22 @@ public struct PanelActions: Sendable {
     public var onQuit: @MainActor () -> Void
     /// Handles a module's detail-row action (e.g. a timer's "timer.toggle:25").
     public var onAction: @MainActor (String) -> Void
+    /// Handles files dropped onto the panel (the file shelf). Returns true if the
+    /// drop was accepted, so the panel can show its highlight only when useful.
+    public var onDropFiles: @MainActor ([URL]) -> Bool
 
     public init(onConnect: @escaping @MainActor () -> Void = {},
                 onSettings: @escaping @MainActor () -> Void = {},
                 onReload: @escaping @MainActor () -> Void = {},
                 onQuit: @escaping @MainActor () -> Void = {},
-                onAction: @escaping @MainActor (String) -> Void = { _ in }) {
+                onAction: @escaping @MainActor (String) -> Void = { _ in },
+                onDropFiles: @escaping @MainActor ([URL]) -> Bool = { _ in false }) {
         self.onConnect = onConnect
         self.onSettings = onSettings
         self.onReload = onReload
         self.onQuit = onQuit
         self.onAction = onAction
+        self.onDropFiles = onDropFiles
     }
 }
 
@@ -35,6 +41,7 @@ struct PanelView: View {
     let items: [PanelItem]
     let isConnected: Bool
     let actions: PanelActions
+    @State private var isDropTargeted = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,9 +61,27 @@ struct PanelView: View {
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color.black.opacity(0.92))
-                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.08)))
+                .overlay(RoundedRectangle(cornerRadius: 18)
+                    .strokeBorder(isDropTargeted ? Color.accentColor : .white.opacity(0.08),
+                                  lineWidth: isDropTargeted ? 2 : 1))
         )
         .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
+        // Drop files anywhere on the panel → the file shelf (if configured).
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+            loadDroppedURLs(providers)
+            return true
+        }
+    }
+
+    /// Resolve dropped item providers to file URLs off the main actor, then hand
+    /// them to the shell's drop handler.
+    private func loadDroppedURLs(_ providers: [NSItemProvider]) {
+        for provider in providers {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url else { return }
+                Task { @MainActor in _ = actions.onDropFiles([url]) }
+            }
+        }
     }
 
     @ViewBuilder

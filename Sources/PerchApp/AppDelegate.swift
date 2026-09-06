@@ -30,10 +30,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let notifier = Notifier()
     private let timerController = TimerController()
     private let clipboardController = ClipboardController()
+    private let fileShelfController = FileShelfController()
     private let updateChecker = UpdateChecker()
     private var configWatcher: ConfigWatcher?
     private var updateItem: NSMenuItem?
-    private var pendingUpdateURL: String?
+    private var pendingUpdate: UpdateInfo?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let isFirstRun = !FileManager.default.fileExists(atPath: ConfigStore.defaultFileURL.path)
@@ -45,7 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onSettings: { [weak self] in self?.openSettings() },
             onReload: { [weak self] in self?.applyConfig() },
             onQuit: { NSApp.terminate(nil) },
-            onAction: { [weak self] action in self?.handleAction(action) }
+            onAction: { [weak self] action in self?.handleAction(action) },
+            onDropFiles: { [weak self] urls in self?.handleDroppedFiles(urls) ?? false }
         )
         let controller = NotchWindowController(model: model, onActivate: { [weak self] in
             self?.handleActivate()
@@ -78,27 +80,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if userInitiated { self.updateItem?.title = "Perch is up to date" }
                 return
             }
-            self.pendingUpdateURL = info.pageURL
-            self.updateItem?.title = "Update available: \(info.version) — install"
-            if userInitiated, let url = URL(string: info.pageURL) {
-                NSWorkspace.shared.open(url)
+            self.pendingUpdate = info
+            self.updateItem?.title = "Update to \(info.version) — install now"
+            if userInitiated {
+                self.installUpdate(info)
             } else {
                 notifier.post(ModuleAlert(
                     id: "perch-update-\(info.version)",
                     title: "Perch \(info.version) is available",
-                    body: "Open the menu-bar bird → “Update available” to install."))
+                    body: "Open the menu-bar bird → “Update” to install.",
+                    url: info.pageURL))
             }
         }
     }
 
     @objc private func checkForUpdatesClicked() {
-        // If we already found one, clicking installs (opens the page); otherwise
-        // run a fresh check and open it if found.
-        if let url = pendingUpdateURL, let u = URL(string: url) {
-            NSWorkspace.shared.open(u)
+        // If we already found one, clicking installs it; otherwise run a fresh
+        // check and install if found.
+        if let info = pendingUpdate {
+            installUpdate(info)
         } else {
             updateItem?.title = "Checking…"
             checkForUpdates(userInitiated: true)
+        }
+    }
+
+    /// Install a found update in place, then quit + relaunch. Falls back to
+    /// opening the release page if the app isn't bundle-installed (swift run) or
+    /// the swap fails.
+    private func installUpdate(_ info: UpdateInfo) {
+        guard let zip = URL(string: info.zipURL) else { return }
+        updateItem?.title = "Downloading \(info.version)…"
+        Task {
+            let result = await SelfUpdater.installUpdate(from: zip)
+            switch result {
+            case .relaunching:
+                break   // app is terminating; the swap script relaunches it
+            case .unsupported, .failed:
+                self.updateItem?.title = "Open \(info.version) release page"
+                if let page = URL(string: info.pageURL) { NSWorkspace.shared.open(page) }
+            }
         }
     }
 
@@ -120,12 +141,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let autoOpenOnRed = config.global.autoOpenOnRed
         let factory = ModuleFactory(apiClient: GitHubAPIClient(auth: auth),
                                     timerController: timerController,
-                                    clipboardController: clipboardController)
+                                    clipboardController: clipboardController,
+                                    fileShelfController: fileShelfController)
         let binder = SlotBinder(model: model, context: ModuleContext(), notifier: notifier,
                                 onCritical: { [weak self] in
                                     guard autoOpenOnRed else { return }
                                     self?.autoOpenPanel()
-                                })
+                                },
+                                onStatusChange: { [weak self] in self?.refreshStatusIcon() })
 
         // Group every placement (pills + panel rows) by (module id + settings)
         // so identical configs share one poll instead of each fetching.
@@ -173,6 +196,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if model.isPanelOpen { refreshConnectedFlag() }
     }
 
+    /// Tint the menu-bar bird to the worst current state — red if anything is
+    /// failing, amber if anything is warning — so a failure is visible even in
+    /// fullscreen or on a Mac with no notch. Neutral (default) when all is well.
+    private func refreshStatusIcon() {
+        var tints: [Tint] = []
+        if let l = model.leftPill { tints.append(l.face.tint) }
+        if let r = model.rightPill { tints.append(r.face.tint) }
+        tints.append(contentsOf: model.panelItems.map { $0.content.face.tint })
+        let color: NSColor? = tints.contains(.critical) ? .systemRed
+            : (tints.contains(.warning) ? .systemYellow : nil)
+        statusItem?.button?.contentTintColor = color
+    }
+
     /// Pop the panel because something went red (auto-open-on-red). No-op if it's
     /// already open, so a flapping build doesn't yank focus repeatedly.
     private func autoOpenPanel() {
@@ -206,9 +242,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         NSPasteboard.general.setString(text, forType: .string)
                     }
                 }
+            case "shelf.open":
+                // Reveal the stashed file in Finder.
+                if let index = Int(id), let shelfItem = await fileShelfController.item(at: index) {
+                    await MainActor.run {
+                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: shelfItem.path)])
+                    }
+                }
             default: break
             }
         }
+    }
+
+    /// Record files dropped onto the panel into the file shelf. Returns true so
+    /// the panel confirms the drop even though recording is async.
+    private func handleDroppedFiles(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty else { return false }
+        Task { [fileShelfController] in
+            for url in urls { await fileShelfController.add(path: url.path) }
+        }
+        return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {

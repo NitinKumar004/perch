@@ -311,6 +311,11 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         modulePicker(editor: $panel[i])
+                        // Reorder: move this row up / down in the panel stack.
+                        Button { move(from: i, to: i - 1) } label: { Image(systemName: "chevron.up") }
+                            .controlSize(.small).disabled(i == 0)
+                        Button { move(from: i, to: i + 1) } label: { Image(systemName: "chevron.down") }
+                            .controlSize(.small).disabled(i == panel.count - 1)
                         Button(role: .destructive) {
                             panel.remove(at: i)
                         } label: { Image(systemName: "trash") }
@@ -322,6 +327,13 @@ struct SettingsView: View {
                 .background(RoundedRectangle(cornerRadius: 8).fill(.quaternary.opacity(0.4)))
             }
         }
+    }
+
+    /// Swap a panel row to a new index, clamped so the buttons can't over-run.
+    private func move(from: Int, to: Int) {
+        guard panel.indices.contains(from), to >= 0, to < panel.count else { return }
+        let item = panel.remove(at: from)
+        panel.insert(item, at: to)
     }
 
     private var footer: some View {

@@ -141,7 +141,8 @@ public struct GitHubBuildsModule: NotchModule {
         return ModuleAlert(
             id: "build-failing-\(value.shortSHA.isEmpty ? value.url : value.shortSHA)",
             title: "Build failing",
-            body: "\(value.workflowName.isEmpty ? "CI" : value.workflowName)\(branch)")
+            body: "\(value.workflowName.isEmpty ? "CI" : value.workflowName)\(branch)",
+            url: value.url.isEmpty ? nil : value.url)
     }
 
     /// A 401 (revoked/expired token) won't fix itself by retrying — back off hard.

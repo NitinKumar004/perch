@@ -30,14 +30,25 @@ in the notch — fully customizable, accuracy-first, and local.
   onboarding, and an update check against GitHub Releases (prompts the one-line
   reinstall — the honest fit for unsigned `curl | bash` distribution).
 
+## Also shipped
+
+- **File shelf** — drop files onto the panel to stash them; click to reveal in
+  Finder. Paths only, nothing copied or uploaded.
+- **Next-meeting countdown** — a Calendar module (EventKit) with a live
+  countdown; amber inside 5 minutes. Permission requested on first use.
+- **In-app self-update** — download + swap the app bundle in place from the
+  menu (the proven `get.sh` mechanism, triggered in-app). The honest fit for
+  unsigned distribution — no Sparkle/signing dependency.
+- **Menu-bar status colour** — the bird goes red/amber to mirror the worst
+  module, visible in fullscreen and on non-notch Macs.
+- **Notification click-through** — tapping an alert opens the failing build / PR.
+- **Panel row reorder** + **GitHub rate-limit backoff** (shared per-token gate).
+
 ## Still open
 
-- **File shelf** — the drag-and-drop half of "clipboard + file shelf". Needs a
-  drop target in the panel (a new interaction surface), so it's its own task.
-- **Next-meeting countdown** — a Calendar module. Needs EventKit permission +
-  entitlements, which touch the unsigned-distribution story; scoped separately.
-- **Sparkle auto-update** — true in-app auto-update needs code-signing + an
-  appcast. Deferred deliberately; the release-based update check covers the gap.
+- **Signed + notarized builds** — would remove the one-time "unidentified
+  developer" friction for browser downloads and enable true silent Sparkle
+  updates. Needs an Apple Developer ID — deliberately out of scope for now.
 
 ## Principles that never bend
 

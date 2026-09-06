@@ -29,10 +29,15 @@ public struct BuildObservation: Sendable, Equatable {
 public struct GitHubAPIClient: Sendable {
     private let http: any HTTPClient
     private let auth: GitHubAuth
+    /// Shared rate-limit record — every call reports its headers here so pollers
+    /// can back off together before GitHub starts returning 403s.
+    public let rateLimit: RateLimitGate
 
-    public init(http: any HTTPClient = URLSessionHTTPClient(), auth: GitHubAuth) {
+    public init(http: any HTTPClient = URLSessionHTTPClient(), auth: GitHubAuth,
+                rateLimit: RateLimitGate = RateLimitGate()) {
         self.http = http
         self.auth = auth
+        self.rateLimit = rateLimit
     }
 
     /// The HTTP transport, for other query files in this module to share.
@@ -62,6 +67,7 @@ public struct GitHubAPIClient: Sendable {
             body: body
         )
         let response = try await http.send(request)
+        await rateLimit.record(RateLimit.from(response))
         guard (200..<300).contains(response.status) else {
             throw GitHubAuthError.http(status: response.status)
         }
@@ -107,6 +113,7 @@ public struct GitHubAPIClient: Sendable {
         if let etag { headers["If-None-Match"] = etag }
 
         let response = try await http.send(HTTPRequest(url: url, method: "GET", headers: headers))
+        await rateLimit.record(RateLimit.from(response))
         if response.status == 304 { return .notModified }
         guard (200..<300).contains(response.status) else {
             throw GitHubAuthError.http(status: response.status)

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import UserNotifications
 import PerchModuleKit
@@ -6,8 +7,11 @@ import PerchConfig
 /// Posts native macOS notifications for module alerts, deduped by alert id so
 /// the same event never nags twice. Authorization is requested once at launch;
 /// if the user declines, posting is a silent no-op.
+///
+/// Also the notification-center delegate, so tapping an alert opens the URL the
+/// module attached (the failing build, the PR waiting on review).
 @MainActor
-final class Notifier {
+final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     // Bounded dedup: a Set for O(1) lookup + an insertion-order queue so the
     // oldest ids are evicted once the cap is hit. Without the cap this would
     // grow forever in a long-running background agent.
@@ -29,7 +33,29 @@ final class Notifier {
 
     func requestAuthorization() {
         guard isAvailable else { return }
+        UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    /// Tapping a notification opens the URL the alert carried, if any.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping () -> Void) {
+        let urlString = response.notification.request.content.userInfo["url"] as? String
+        completionHandler()
+        if let urlString {
+            Task { @MainActor in
+                if let url = URL(string: urlString) { NSWorkspace.shared.open(url) }
+            }
+        }
+    }
+
+    /// Show the banner even while Perch is frontmost (it's a background agent, so
+    /// this is the norm), otherwise alerts would be silently dropped.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            willPresent notification: UNNotification,
+                                            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
     }
 
     /// Post an alert unless one with the same id has already been shown — or
@@ -46,6 +72,7 @@ final class Notifier {
         content.title = alert.title
         content.body = alert.body
         content.sound = .default
+        if let url = alert.url { content.userInfo["url"] = url }
 
         let request = UNNotificationRequest(identifier: alert.id, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)

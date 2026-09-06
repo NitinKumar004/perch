@@ -147,6 +147,59 @@ import PerchModuleKit
     #expect(m.detail(for: PortStatus(port: 3000, isUp: true, label: ":3000"))[0].subtitle == "listening on 127.0.0.1:3000")
 }
 
+// MARK: - File shelf
+
+@Test func fileShelfDedupesCapsAndShortens() async {
+    let c = FileShelfController(cap: 2)
+    await c.add(path: "/Users/me/a.txt")
+    await c.add(path: "/Users/me/a.txt")     // dup → still one
+    await c.add(path: "/Users/me/b.txt")
+    await c.add(path: "/Users/me/c.txt")     // evicts a.txt
+    let snap = await c.snapshot()
+    #expect(snap.map(\.name) == ["c.txt", "b.txt"])
+    await c.remove(at: 0)
+    #expect(await c.snapshot().map(\.name) == ["b.txt"])
+    #expect(FileShelfModule.shortPath("/Users/me/deep/dir/file.txt") == "…/dir/file.txt")
+    #expect(FileShelfModule.shortPath("/a") == "/a")
+}
+
+@Test func fileShelfRowsAndEmptyState() {
+    let m = FileShelfModule(controller: FileShelfController())
+    let rows = m.detail(for: ShelfState(items: [ShelfItem(path: "/x/y.txt", name: "y.txt")]))
+    #expect(rows[0].action == "shelf.open:0")
+    #expect(rows[0].title == "y.txt")
+    // Empty shows guidance, no action.
+    #expect(m.detail(for: .empty)[0].action == nil)
+    #expect(m.face(for: ShelfState(items: [ShelfItem(path: "/x", name: "x")]), in: .rightPill).text == "1")
+}
+
+// MARK: - Calendar
+
+private struct FakeCalendar: CalendarReading {
+    let event: NextEvent?
+    let access: Bool
+    func requestAccess() async -> Bool { access }
+    func nextEvent(from: Date, within seconds: TimeInterval) async -> NextEvent? { event }
+}
+
+@Test func calendarCountdownFormats() {
+    let now = Date(timeIntervalSince1970: 1_000_000)
+    #expect(CalendarModule.countdown(to: now.addingTimeInterval(8 * 60), now: now) == "in 8m")
+    #expect(CalendarModule.countdown(to: now.addingTimeInterval(2 * 3600 + 5 * 60), now: now) == "in 2h 5m")
+    #expect(CalendarModule.countdown(to: now.addingTimeInterval(10), now: now) == "now")
+    #expect(CalendarModule.countdown(to: now.addingTimeInterval(-180), now: now) == "started 3m ago")
+}
+
+@Test func calendarFaceReflectsImminence() {
+    let m = CalendarModule(reader: FakeCalendar(event: nil, access: true))
+    #expect(m.face(for: .none, in: .rightPill).text == "clear")
+    let soon = NextEvent(title: "Standup", startsAt: Date().addingTimeInterval(3 * 60), isAllDay: false)
+    #expect(m.face(for: soon, in: .rightPill).tint == .warning)   // ≤5 min → amber
+    let later = NextEvent(title: "Review", startsAt: Date().addingTimeInterval(60 * 60), isAllDay: false)
+    #expect(m.face(for: later, in: .rightPill).tint == .info)
+    #expect(m.detail(for: later)[0].title == "Review")
+}
+
 // Minimal doubles so GitHub-backed modules can be built without a network.
 import PerchGitHub
 private struct NoopHTTP: HTTPClient {

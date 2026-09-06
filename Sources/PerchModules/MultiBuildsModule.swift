@@ -77,6 +77,10 @@ public struct MultiBuildsModule: NotchModule {
                     var results: [RepoBuild] = []
                     var anyError = false
                     for repo in repos {
+                        // Back off with the shared budget so a wide fan-out never
+                        // burns the token's REST limit mid-sweep.
+                        let throttle = await client.rateLimit.throttleDelay()
+                        if throttle > 0 { try? await Task.sleep(for: .seconds(min(throttle, 60))) }
                         let parts = repo.split(separator: "/", maxSplits: 1).map(String.init)
                         guard parts.count == 2 else { continue }
                         do {
@@ -148,7 +152,7 @@ public struct MultiBuildsModule: NotchModule {
         let nowFailing = value.repos.filter { $0.state == .failing && !wasFailing.contains($0.repo) }
         guard let first = nowFailing.first else { return nil }
         return ModuleAlert(id: "multibuild-failing-\(first.repo)-\(first.url)",
-                           title: "Build failing", body: first.repo)
+                           title: "Build failing", body: first.repo, url: first.url)
     }
 
     static func parseRepos(_ raw: String) -> [String] {

@@ -155,6 +155,24 @@ struct SettingsView: View {
             } label: {
                 Text("Sign in with a token instead").font(.system(size: 11, weight: .medium))
             }
+
+            // Private-repo help — the #1 confusion. Spell out the two paths.
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Signing in with GitHub uses the Perch app, which can only read **private** repos where it's installed. Two ways to see them:")
+                        .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                    Label("Install the Perch app on that repo/org (org repos may need an owner's approval).", systemImage: "1.circle")
+                        .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                    Label("Or sign in with a token above — it reads every repo you can access.", systemImage: "2.circle")
+                        .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                    Link("Manage repo access on GitHub ↗",
+                         destination: URL(string: "https://github.com/settings/installations")!)
+                        .font(.system(size: 10.5))
+                }
+                .padding(.top, 4)
+            } label: {
+                Text("A private repo isn't showing?").font(.system(size: 11, weight: .medium))
+            }
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.4)))

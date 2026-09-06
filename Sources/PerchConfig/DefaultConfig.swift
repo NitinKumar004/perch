@@ -1,25 +1,22 @@
 import Foundation
 
-/// The layout a brand-new user gets: a couple of sensible presets so the notch
-/// is useful the moment the app starts, before they've customised anything.
+/// The layout a brand-new user gets. It uses only **local** modules that work
+/// instantly for anyone with zero setup — no personal repo, no "needs GitHub".
+/// GitHub Build / Pull-requests modules are added by the user from Settings
+/// once they've connected, so a fresh launch is useful and never tracks someone
+/// else's repository.
 public enum DefaultConfig {
     public static func make() -> LayoutConfig {
-        let builds = SlotBinding(
-            module: "github.builds",
-            settings: ["repo": "NitinKumar004/perch", "branch": "main"]
-        )
-        let prs = SlotBinding(
-            module: "github.prs",
-            settings: ["queue": "review-requested"]
-        )
+        let cpu = SlotBinding(module: "system.cpu")
+        let memory = SlotBinding(module: "system.memory")
         let clock = SlotBinding(module: "system.clock")
 
         return LayoutConfig(
             activePreset: "default",
             presets: [
-                "default": Preset(leftPill: builds, rightPill: prs, panel: [builds, prs]),
-                "minimal": Preset(leftPill: builds, rightPill: clock),
-            ]
+                "default": Preset(leftPill: cpu, rightPill: clock, panel: [cpu, memory]),
+            ],
+            hudPosition: "flank"
         )
     }
 }

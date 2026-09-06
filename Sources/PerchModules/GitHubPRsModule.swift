@@ -133,8 +133,9 @@ public struct GitHubPRsModule: NotchModule {
                 return [DetailRow(
                     id: "pr-none",
                     title: "No matching PRs in \(scope)",
-                    subtitle: "If it's private, Perch needs access — sign in with a token or install the app on that repo.",
-                    tint: .neutral, symbolName: "questionmark.circle")]
+                    subtitle: "Private repo? Tap to grant Perch access on GitHub — or sign in with a token in Settings.",
+                    tint: .neutral, symbolName: "lock.circle",
+                    url: "https://github.com/settings/installations")]
             }
             return value.count == 0 ? [] : [DetailRow(id: "pr-empty", title: "\(value.count) waiting", tint: .warning)]
         }

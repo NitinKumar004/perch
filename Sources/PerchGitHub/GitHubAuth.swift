@@ -136,9 +136,16 @@ public actor GitHubAuth {
     }
 
     /// Forget the stored token, in the Keychain and in memory.
+    ///
+    /// The in-memory cache is cleared **first and unconditionally**, and any
+    /// in-flight refresh is cancelled, so "disconnected" takes effect for this
+    /// session even if the Keychain delete fails (an ad-hoc build whose signature
+    /// changed can hit a Keychain access error) or a refresh was about to re-save.
     public func signOut() throws {
-        try store.clear()
+        refreshTask?.cancel()
+        refreshTask = nil
         cachedToken = nil
         loaded = true
+        try store.clear()
     }
 }

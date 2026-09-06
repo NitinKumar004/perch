@@ -156,6 +156,24 @@ private let epoch = Date(timeIntervalSince1970: 1_000_000)
     }
 }
 
+@Test func signOutClearsSessionEvenIfStoreClearThrows() async throws {
+    // A store whose clear() fails (mirrors a Keychain access error on an ad-hoc
+    // rebuild). Sign-out must still leave the session disconnected — otherwise
+    // the UI flips back to "Connected" on the next poll.
+    struct FailingClearStore: TokenStore {
+        let token: GitHubToken
+        func load() throws -> GitHubToken? { token }
+        func save(_ token: GitHubToken) throws {}
+        func clear() throws { throw GitHubAuthError.keychain(status: -25293) }
+    }
+    let fresh = GitHubToken(accessToken: "t", refreshToken: nil, expiresAt: nil, refreshTokenExpiresAt: nil)
+    let auth = GitHubAuth(flow: GitHubDeviceFlow(http: FakeHTTPClient([]), clientID: "cid"),
+                          store: FailingClearStore(token: fresh), clock: TestClock(epoch))
+    #expect(await auth.isConnected())
+    _ = try? await auth.signOut()          // clear() throws, but…
+    #expect(!(await auth.isConnected()))    // …the in-memory session is still cleared
+}
+
 @Test func validAccessTokenThrowsWhenNotConnected() async throws {
     let auth = GitHubAuth(flow: GitHubDeviceFlow(http: FakeHTTPClient([]), clientID: "cid"),
                           store: InMemoryTokenStore(nil), clock: TestClock(epoch))

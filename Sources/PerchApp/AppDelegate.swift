@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let welcomeWindow = WelcomeWindowController()
     private let notifier = Notifier()
     private let timerController = TimerController()
+    private let clipboardController = ClipboardController()
     private var configWatcher: ConfigWatcher?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -79,7 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let preset = config.current else { return }
 
         let autoOpenOnRed = config.global.autoOpenOnRed
-        let factory = ModuleFactory(apiClient: GitHubAPIClient(auth: auth), timerController: timerController)
+        let factory = ModuleFactory(apiClient: GitHubAPIClient(auth: auth),
+                                    timerController: timerController,
+                                    clipboardController: clipboardController)
         let binder = SlotBinder(model: model, context: ModuleContext(), notifier: notifier,
                                 onCritical: { [weak self] in
                                     guard autoOpenOnRed else { return }
@@ -153,10 +156,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let parts = action.split(separator: ":", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { return }
         let (verb, id) = (parts[0], parts[1])
-        Task { [timerController] in
+        Task { [timerController, clipboardController] in
             switch verb {
             case "timer.toggle": await timerController.togglePause(id: id, now: Date())
             case "timer.reset":  await timerController.reset(id: id, now: Date())
+            case "clip.copy":
+                // Copy the chosen history entry back to the system pasteboard.
+                if let index = Int(id), let text = await clipboardController.entry(at: index) {
+                    await MainActor.run {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    }
+                }
             default: break
             }
         }

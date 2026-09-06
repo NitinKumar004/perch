@@ -85,6 +85,16 @@ public enum ModuleCatalog {
                     Self.refreshSetting(placeholder: "90"),
                 ]),
             CatalogEntry(
+                id: MultiBuildsModule.descriptor.id,
+                name: MultiBuildsModule.descriptor.name,
+                summary: MultiBuildsModule.descriptor.summary,
+                requiresConnection: true,
+                settings: [
+                    ModuleSetting(key: "repos", label: "Repositories", placeholder: "owner/a, owner/b, owner/c"),
+                    ModuleSetting(key: "branch", label: "Branch", placeholder: "main", defaultValue: "main"),
+                    Self.refreshSetting(placeholder: "90"),
+                ]),
+            CatalogEntry(
                 id: DeployModule.descriptor.id,
                 name: DeployModule.descriptor.name,
                 summary: DeployModule.descriptor.summary,
@@ -103,6 +113,26 @@ public enum ModuleCatalog {
                 name: MemoryModule.descriptor.name,
                 summary: MemoryModule.descriptor.summary,
                 requiresConnection: false, settings: [Self.refreshSetting(placeholder: "2")]),
+            CatalogEntry(
+                id: NetworkModule.descriptor.id,
+                name: NetworkModule.descriptor.name,
+                summary: NetworkModule.descriptor.summary,
+                requiresConnection: false, settings: [Self.refreshSetting(placeholder: "2")]),
+            CatalogEntry(
+                id: ClipboardModule.descriptor.id,
+                name: ClipboardModule.descriptor.name,
+                summary: ClipboardModule.descriptor.summary,
+                requiresConnection: false, settings: []),
+            CatalogEntry(
+                id: PortMonitorModule.descriptor.id,
+                name: PortMonitorModule.descriptor.name,
+                summary: PortMonitorModule.descriptor.summary,
+                requiresConnection: false,
+                settings: [
+                    ModuleSetting(key: "port", label: "Port", placeholder: "3000", defaultValue: "3000"),
+                    ModuleSetting(key: "label", label: "Label (optional)", placeholder: ":3000"),
+                    Self.refreshSetting(placeholder: "5"),
+                ]),
             CatalogEntry(
                 id: BatteryModule.descriptor.id,
                 name: BatteryModule.descriptor.name,

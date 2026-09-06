@@ -63,3 +63,97 @@ import PerchModuleKit
     #expect(m.face(for: .degraded, in: .leftPill).tint == .warning)
     #expect(m.face(for: .down, in: .leftPill).tint == .critical)
 }
+
+// MARK: - Network
+
+@Test func networkRateIsHumanReadable() {
+    #expect(NetworkReader.humanRate(0) == "0 B/s")
+    #expect(NetworkReader.humanRate(512) == "512 B/s")
+    #expect(NetworkReader.humanRate(1536) == "1.5 KB/s")
+    #expect(NetworkReader.humanRate(5 * 1024 * 1024) == "5.0 MB/s")
+    #expect(NetworkReader.humanRate(-10) == "0 B/s")   // never negative
+}
+
+@Test func networkFaceShowsDownload() {
+    let m = NetworkModule()
+    let face = m.face(for: NetThroughput(downBytesPerSec: 2048, upBytesPerSec: 1024), in: .rightPill)
+    #expect(face.text == "↓ 2.0 KB/s")
+    let rows = m.detail(for: NetThroughput(downBytesPerSec: 2048, upBytesPerSec: 1024))
+    #expect(rows.count == 2)
+    #expect(rows[0].subtitle == "2.0 KB/s")
+}
+
+// MARK: - Multi-repo builds
+
+@Test func multiBuildWorstAndCount() {
+    func rb(_ repo: String, _ s: BuildState) -> RepoBuild { RepoBuild(repo: repo, state: s, url: "u") }
+    let mixed = MultiBuildState(repos: [rb("a", .passing), rb("b", .failing), rb("c", .running)])
+    #expect(mixed.worst == .failing)
+    #expect(mixed.failingCount == 1)
+    let running = MultiBuildState(repos: [rb("a", .passing), rb("b", .running)])
+    #expect(running.worst == .running)
+    #expect(MultiBuildState.empty.worst == .unknown)
+}
+
+@Test func multiBuildParsesReposAndFace() {
+    #expect(MultiBuildsModule.parseRepos("owner/a, owner/b ,owner/c") == ["owner/a", "owner/b", "owner/c"])
+    #expect(MultiBuildsModule.parseRepos("garbage, also-bad").isEmpty)   // need a slash
+    let m = MultiBuildsModule(client: .init(auth: .init(flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore())))
+    let state = MultiBuildState(repos: [RepoBuild(repo: "o/a", state: .failing, url: "u")])
+    #expect(m.face(for: state, in: .rightPill).text == "1✗")
+    #expect(m.face(for: state, in: .rightPill).tint == .critical)
+    #expect(m.detail(for: state)[0].url == "u")
+}
+
+// MARK: - Clipboard
+
+@Test func clipboardControllerDedupesAndCaps() async {
+    let c = ClipboardController(cap: 3)
+    await c.record("one")
+    await c.record("one")             // duplicate top → ignored
+    await c.record("  ")              // blank → ignored
+    await c.record("two")
+    await c.record("three")
+    await c.record("four")            // evicts "one"
+    let snap = await c.snapshot()
+    #expect(snap == ["four", "three", "two"])
+    // Re-copying an older entry moves it to the top.
+    await c.record("two")
+    #expect(await c.snapshot() == ["two", "four", "three"])
+    #expect(await c.entry(at: 0) == "two")
+    #expect(await c.entry(at: 9) == nil)
+}
+
+@Test func clipboardPreviewAndRows() {
+    #expect(ClipboardModule.preview("hello\nworld") == "hello world")
+    #expect(ClipboardModule.preview(String(repeating: "x", count: 80)).hasSuffix("…"))
+    let m = ClipboardModule(controller: ClipboardController())
+    let rows = m.detail(for: ClipboardHistory(entries: ["first", "second"]))
+    #expect(rows[0].action == "clip.copy:0")
+    #expect(rows[0].subtitle == "on the clipboard now")
+    #expect(rows[1].action == "clip.copy:1")
+    // Empty history shows a friendly placeholder, no actions.
+    #expect(m.detail(for: .empty)[0].action == nil)
+}
+
+// MARK: - Port monitor
+
+@Test func portFaceReflectsUpDown() {
+    let m = PortMonitorModule()
+    let up = m.face(for: PortStatus(port: 3000, isUp: true, label: ":3000"), in: .rightPill)
+    #expect(up.tint == .good)
+    let down = m.face(for: PortStatus(port: 3000, isUp: false, label: ":3000"), in: .rightPill)
+    #expect(down.tint == .neutral)   // down is not an error → never red
+    #expect(m.detail(for: PortStatus(port: 3000, isUp: true, label: ":3000"))[0].subtitle == "listening on 127.0.0.1:3000")
+}
+
+// Minimal doubles so GitHub-backed modules can be built without a network.
+import PerchGitHub
+private struct NoopHTTP: HTTPClient {
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse { HTTPResponse(status: 0, body: .init()) }
+}
+private struct NoopStore: TokenStore {
+    func load() throws -> GitHubToken? { nil }
+    func save(_ token: GitHubToken) throws {}
+    func clear() throws {}
+}

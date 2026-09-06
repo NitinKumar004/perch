@@ -12,10 +12,13 @@ import PerchConfig
 public struct ModuleFactory: Sendable {
     private let apiClient: GitHubAPIClient
     private let timerController: TimerController
+    private let clipboardController: ClipboardController
 
-    public init(apiClient: GitHubAPIClient, timerController: TimerController) {
+    public init(apiClient: GitHubAPIClient, timerController: TimerController,
+                clipboardController: ClipboardController) {
         self.apiClient = apiClient
         self.timerController = timerController
+        self.clipboardController = clipboardController
     }
 
     /// Build the module named by `binding`, applying its settings, or `nil` if
@@ -30,11 +33,23 @@ public struct ModuleFactory: Sendable {
             return AnyNotchModule(GitHubBuildsModule(
                 client: apiClient, owner: parts[0], repo: parts[1], branch: branch))
 
+        case MultiBuildsModule.descriptor.id:
+            return AnyNotchModule(MultiBuildsModule(client: apiClient))
+
         case GitHubPRsModule.descriptor.id:
             return AnyNotchModule(GitHubPRsModule(client: apiClient))
 
         case VitalsModule.descriptor.id:
             return AnyNotchModule(VitalsModule())
+
+        case NetworkModule.descriptor.id:
+            return AnyNotchModule(NetworkModule())
+
+        case ClipboardModule.descriptor.id:
+            return AnyNotchModule(ClipboardModule(controller: clipboardController))
+
+        case PortMonitorModule.descriptor.id:
+            return AnyNotchModule(PortMonitorModule())
 
         case MemoryModule.descriptor.id:
             return AnyNotchModule(MemoryModule())

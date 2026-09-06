@@ -115,6 +115,22 @@ public struct Preset: Codable, Equatable, Sendable {
         self.rightPill = rightPill
         self.panel = panel
     }
+
+    /// Return a tidied copy of the layout:
+    /// - the **panel** has no duplicate modules (the same module can't be listed
+    ///   twice), keeping the first of any repeat;
+    /// - the **left and right pills never hold the *same* module** (that would be
+    ///   redundant) — if the right pill matches the left, it's cleared.
+    ///
+    /// A pill *may* hold a module that is also in the panel — that's intended: you
+    /// pin a panel module to a pill and it stays in the panel too.
+    public func normalizedSlots() -> Preset {
+        var seen = Set<String>()
+        let dedupedPanel = panel.filter { seen.insert($0.module).inserted }
+        var right = rightPill
+        if let left = leftPill, right?.module == left.module { right = nil }
+        return Preset(leftPill: leftPill, rightPill: right, panel: dedupedPanel)
+    }
 }
 
 /// A module placed in a slot, plus the settings that module needs. Settings are

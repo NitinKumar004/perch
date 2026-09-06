@@ -69,11 +69,11 @@ struct SettingsView: View {
                     Divider()
                     slotSection(title: "Left pill",
                                 caption: "The icon just left of the notch.",
-                                editor: $left)
+                                editor: $left, kind: .left)
                     Divider()
                     slotSection(title: "Right pill",
                                 caption: "The icon just right of the notch.",
-                                editor: $right)
+                                editor: $right, kind: .right)
                     Divider()
                     panelSection
                 }
@@ -218,22 +218,43 @@ struct SettingsView: View {
 
     // MARK: - One slot (a single module)
 
-    private func slotSection(title: String, caption: String, editor: Binding<SlotEditor>) -> some View {
+    private func slotSection(title: String, caption: String, editor: Binding<SlotEditor>, kind: SlotKind) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.system(size: 13, weight: .semibold))
             Text(caption).font(.system(size: 11)).foregroundStyle(.secondary)
-            modulePicker(editor: editor)
+            modulePicker(editor: editor, kind: kind)
             settingsFields(for: editor)
         }
     }
 
+    /// Which slot a picker is for — used to hide only the modules that would
+    /// truly clash. Pills only exclude *each other* (so left ≠ right); a panel
+    /// row only excludes the *other* panel rows. A module in the panel can still
+    /// be pinned to a pill — that overlap is allowed.
+    private enum SlotKind: Equatable { case left, right, panel(Int) }
+
+    private func clashingModuleIDs(for kind: SlotKind) -> Set<String> {
+        switch kind {
+        case .left:  return right.moduleID.isEmpty ? [] : [right.moduleID]
+        case .right: return left.moduleID.isEmpty ? [] : [left.moduleID]
+        case .panel(let index):
+            var ids = Set<String>()
+            for (j, editor) in panel.enumerated() where j != index && !editor.moduleID.isEmpty {
+                ids.insert(editor.moduleID)
+            }
+            return ids
+        }
+    }
+
     /// A module picker whose choices are grouped by what they need, so the
-    /// local-vs-GitHub distinction is obvious *before* you pick.
-    private func modulePicker(editor: Binding<SlotEditor>) -> some View {
-        Picker("Module", selection: editor.moduleID) {
+    /// local-vs-GitHub distinction is obvious *before* you pick. Only modules
+    /// that would genuinely clash for this slot are hidden (see `SlotKind`).
+    private func modulePicker(editor: Binding<SlotEditor>, kind: SlotKind) -> some View {
+        let taken = clashingModuleIDs(for: kind).subtracting([editor.wrappedValue.moduleID])
+        return Picker("Module", selection: editor.moduleID) {
             Text("— none —").tag("")
             ForEach(ModuleGroup.allCases, id: \.self) { group in
-                let entries = catalog.filter { self.group(for: $0) == group }
+                let entries = catalog.filter { self.group(for: $0) == group && !taken.contains($0.id) }
                 if !entries.isEmpty {
                     Section(group.label) {
                         ForEach(entries) { entry in Text(entry.name).tag(entry.id) }
@@ -310,7 +331,16 @@ struct SettingsView: View {
             ForEach(panel.indices, id: \.self) { i in
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        modulePicker(editor: $panel[i])
+                        modulePicker(editor: $panel[i], kind: .panel(i))
+                        // Pin this panel module to a pill — it stays in the panel
+                        // and replaces whatever that pill held.
+                        Menu {
+                            Button("Move to left pill")  { promote(i, toLeft: true) }
+                            Button("Move to right pill") { promote(i, toLeft: false) }
+                        } label: { Image(systemName: "arrow.up.forward.square") }
+                            .menuStyle(.borderlessButton).fixedSize()
+                            .controlSize(.small).disabled(panel[i].moduleID.isEmpty)
+                            .help("Move this module into the left or right pill")
                         // Reorder: move this row up / down in the panel stack.
                         Button { move(from: i, to: i - 1) } label: { Image(systemName: "chevron.up") }
                             .controlSize(.small).disabled(i == 0)
@@ -336,6 +366,22 @@ struct SettingsView: View {
         panel.insert(item, at: to)
     }
 
+    /// Pin a panel module (with its settings) to the left or right pill. It stays
+    /// in the panel — the pill is an additional place it shows — and replaces
+    /// whatever that pill held. If the other pill already holds this same module,
+    /// that pill is cleared so a module is never pinned to both pills.
+    private func promote(_ index: Int, toLeft: Bool) {
+        guard panel.indices.contains(index) else { return }
+        let item = panel[index]   // copy — the panel row stays put
+        if toLeft {
+            left = item
+            if right.moduleID == item.moduleID { right = SlotEditor(binding: nil) }
+        } else {
+            right = item
+            if left.moduleID == item.moduleID { left = SlotEditor(binding: nil) }
+        }
+    }
+
     private var footer: some View {
         HStack {
             if LoginItem.isAvailable {
@@ -357,6 +403,9 @@ struct SettingsView: View {
         preset.leftPill = left.toBinding()
         preset.rightPill = right.toBinding()
         preset.panel = panel.compactMap { $0.toBinding() }
+        // Tidy: no duplicate panel rows, and the two pills never hold the same
+        // module. A pill may still mirror a panel module — that's intended.
+        preset = preset.normalizedSlots()
         config.presets[config.activePreset] = preset
         config.hudPosition = hudPosition
         let trimmed = quietHours.trimmingCharacters(in: .whitespaces)

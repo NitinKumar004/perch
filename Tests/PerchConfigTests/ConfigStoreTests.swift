@@ -88,6 +88,28 @@ private func tempConfigURL() -> URL {
     #expect(loaded.schemaVersion == LayoutConfig.currentVersion)  // migrated forward
 }
 
+@Test func normalizedSlotsAllowsPanelPillOverlapButNotBothPills() {
+    // A module pinned to the left pill AND kept in the panel stays in BOTH —
+    // that overlap is intentional. Panel duplicates collapse to one.
+    let p = Preset(
+        leftPill: SlotBinding(module: "system.cpu"),
+        rightPill: nil,
+        panel: [SlotBinding(module: "system.cpu"), SlotBinding(module: "system.cpu"),
+                SlotBinding(module: "system.memory")])
+    let n = p.normalizedSlots()
+    #expect(n.leftPill?.module == "system.cpu")             // pill kept
+    #expect(n.panel.map(\.module) == ["system.cpu", "system.memory"]) // panel deduped, cpu kept
+    // The same module can't sit in BOTH pills — the right is cleared.
+    let bothPills = Preset(leftPill: SlotBinding(module: "system.clock"),
+                           rightPill: SlotBinding(module: "system.clock"))
+    #expect(bothPills.normalizedSlots().rightPill == nil)
+    #expect(bothPills.normalizedSlots().leftPill?.module == "system.clock")
+    // Distinct pills are both preserved.
+    let distinct = Preset(leftPill: SlotBinding(module: "system.clock"),
+                          rightPill: SlotBinding(module: "github.prs"))
+    #expect(distinct.normalizedSlots() == distinct)
+}
+
 @Test func quietHoursWindowHandlesMidnightWrap() {
     let wrap = GlobalSettings(quietHours: "22:00-08:00")
     #expect(wrap.isQuiet(minuteOfDay: 23 * 60))       // 23:00 → quiet

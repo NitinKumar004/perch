@@ -12,23 +12,32 @@ public struct SettingOption: Sendable, Equatable {
     }
 }
 
+/// How a setting is rendered.
+public enum SettingKind: String, Sendable {
+    case text     // free-text field
+    case choice   // dropdown (uses `options`)
+    case toggle   // on/off checkbox (value "true"/"false")
+}
+
 /// A user-facing description of a setting a module accepts, so a settings UI can
-/// render the right field without hard-coding any module's keys. When `options`
-/// is set, the field is a dropdown; otherwise it's a free-text field.
+/// render the right field without hard-coding any module's keys.
 public struct ModuleSetting: Sendable, Equatable {
     public let key: String
     public let label: String
     public let placeholder: String
     public let defaultValue: String
     public let options: [SettingOption]?
+    public let kind: SettingKind
 
     public init(key: String, label: String, placeholder: String,
-                defaultValue: String = "", options: [SettingOption]? = nil) {
+                defaultValue: String = "", options: [SettingOption]? = nil,
+                kind: SettingKind = .text) {
         self.key = key
         self.label = label
         self.placeholder = placeholder
         self.defaultValue = defaultValue
         self.options = options
+        self.kind = options != nil ? .choice : kind
     }
 }
 
@@ -70,6 +79,9 @@ public enum ModuleCatalog {
                                     SettingOption(value: "author", label: "PRs I opened"),
                                   ]),
                     ModuleSetting(key: "repo", label: "Repository (optional)", placeholder: "owner/name — blank = all repos"),
+                    ModuleSetting(key: "showChecks", label: "Show CI status", placeholder: "", defaultValue: "true", kind: .toggle),
+                    ModuleSetting(key: "showReview", label: "Show review status", placeholder: "", defaultValue: "true", kind: .toggle),
+                    ModuleSetting(key: "limit", label: "How many to list", placeholder: "8", defaultValue: "8"),
                     Self.refreshSetting(placeholder: "90"),
                 ]),
             CatalogEntry(

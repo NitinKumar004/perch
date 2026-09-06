@@ -11,11 +11,17 @@ public struct PRState: Sendable, Equatable {
     /// The repo this is scoped to (nil = all repos) — so an empty result can
     /// explain itself honestly.
     public var repoScope: String?
+    /// User-chosen display toggles.
+    public var showChecks: Bool
+    public var showReview: Bool
 
-    public init(count: Int, items: [PRSummary], repoScope: String? = nil) {
+    public init(count: Int, items: [PRSummary], repoScope: String? = nil,
+                showChecks: Bool = true, showReview: Bool = true) {
         self.count = count
         self.items = items
         self.repoScope = repoScope
+        self.showChecks = showChecks
+        self.showReview = showReview
     }
 
     public static let empty = PRState(count: 0, items: [], repoScope: nil)
@@ -47,6 +53,9 @@ public struct GitHubPRsModule: NotchModule {
         let queue = PRQueue(rawValue: context.settings["queue"] ?? "") ?? .reviewRequested
         let repo = context.settings["repo"]
         let interval = context.refreshSeconds(fallback: 90, minimum: 30)
+        let limit = context.int("limit", fallback: 8, minimum: 1, maximum: 25)
+        let showChecks = context.bool("showChecks", fallback: true)
+        let showReview = context.bool("showReview", fallback: true)
 
         return AsyncStream { continuation in
             let store = VersionedStore<String, PRState>(clock: clock)
@@ -61,10 +70,11 @@ public struct GitHubPRsModule: NotchModule {
                 while !Task.isCancelled {
                     var nextDelay: Double = interval
                     do {
-                        let observation = try await client.pullRequestList(queue: queue, repo: repo, now: clock.now())
+                        let observation = try await client.pullRequestList(queue: queue, repo: repo, limit: limit, now: clock.now())
                         if lastError != nil { print("[perch] pr poll \(key): recovered"); lastError = nil }
                         failures = 0
-                        let state = PRState(count: observation.total, items: observation.items, repoScope: repo)
+                        let state = PRState(count: observation.total, items: observation.items,
+                                            repoScope: repo, showChecks: showChecks, showReview: showReview)
                         let accepted = await store.apply(state, forKey: key, version: observation.observedAt)
                         if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
                             continuation.yield(snapshot)
@@ -141,11 +151,11 @@ public struct GitHubPRsModule: NotchModule {
         }
         return value.items.map { pr in
             let review = Self.status(for: pr)
-            let ci = Self.ciStatus(pr.checksState)
-            // Subtitle names the source + CI state + review state; the row's tint
-            // escalates to red if CI is failing (the most urgent thing to see).
-            let parts = [pr.repo, ci?.label, review.label].compactMap { $0 }
-            let tint: Tint = (ci?.tint == .critical) ? .critical : review.tint
+            let ci = value.showChecks ? Self.ciStatus(pr.checksState) : nil
+            // Subtitle names the source, plus whichever of CI / review the user
+            // chose to show; the row escalates to red if CI is failing.
+            let parts = [pr.repo, ci?.label, value.showReview ? review.label : nil].compactMap { $0 }
+            let tint: Tint = (ci?.tint == .critical) ? .critical : (value.showReview ? review.tint : .info)
             return DetailRow(
                 id: "pr-\(pr.repo)-\(pr.number)",
                 title: "#\(pr.number) \(pr.title)",

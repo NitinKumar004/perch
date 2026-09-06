@@ -9,6 +9,29 @@ import PerchModuleKit
 
 private func series(_ v: Int) -> VitalSeries { VitalSeries(current: v, history: [v]) }
 
+@Test func contextBoolAndIntHelpers() {
+    #expect(ModuleContext(settings: [:]).bool("showChecks", fallback: true) == true)
+    #expect(ModuleContext(settings: ["showChecks": "false"]).bool("showChecks", fallback: true) == false)
+    #expect(ModuleContext(settings: ["limit": "5"]).int("limit", fallback: 8) == 5)
+    #expect(ModuleContext(settings: ["limit": "999"]).int("limit", fallback: 8, maximum: 25) == 25) // clamped
+    #expect(ModuleContext(settings: ["limit": "bad"]).int("limit", fallback: 8) == 8)
+}
+
+@Test func prDetailHonorsDisplayToggles() {
+    let m = GitHubPRsModule(client: .init(auth: .init(
+        flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore())))
+    let pr = PRSummary(number: 1, title: "t", repo: "o/r", url: "u",
+                       reviewDecision: "APPROVED", mergeable: "MERGEABLE",
+                       isDraft: false, checksState: "PENDING")
+    // Both on → subtitle mentions CI and review.
+    let both = m.detail(for: PRState(count: 1, items: [pr], showChecks: true, showReview: true))[0]
+    #expect(both.subtitle?.contains("CI running") == true)
+    #expect(both.subtitle?.contains("approved") == true)
+    // CI off → no CI text.
+    let noCI = m.detail(for: PRState(count: 1, items: [pr], showChecks: false, showReview: true))[0]
+    #expect(noCI.subtitle?.contains("CI") == false)
+}
+
 @Test func refreshSecondsHelperParsesAndClamps() {
     #expect(ModuleContext(settings: [:]).refreshSeconds(fallback: 60) == 60)      // unset → fallback
     #expect(ModuleContext(settings: ["refreshSeconds": "30"]).refreshSeconds(fallback: 60) == 30)

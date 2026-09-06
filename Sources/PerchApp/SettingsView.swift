@@ -239,8 +239,12 @@ struct SettingsView: View {
 
             ForEach(entry.settings, id: \.key) { setting in
                 HStack {
-                    Text(setting.label).font(.system(size: 12)).frame(width: 150, alignment: .leading)
-                    if let options = setting.options {
+                    if setting.kind == .toggle {
+                        Toggle(setting.label, isOn: editor.boolSetting(setting.key, default: setting.defaultValue == "true"))
+                            .toggleStyle(.checkbox)
+                            .font(.system(size: 12))
+                    } else if let options = setting.options {
+                        Text(setting.label).font(.system(size: 12)).frame(width: 150, alignment: .leading)
                         // Fixed choices → a dropdown, so nothing has to be typed.
                         Picker("", selection: editor.setting(setting.key, default: setting.defaultValue)) {
                             ForEach(options, id: \.value) { option in
@@ -250,6 +254,7 @@ struct SettingsView: View {
                         .labelsHidden()
                         .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
+                        Text(setting.label).font(.system(size: 12)).frame(width: 150, alignment: .leading)
                         TextField(setting.placeholder,
                                   text: editor.setting(setting.key, default: setting.defaultValue))
                             .textFieldStyle(.roundedBorder)
@@ -380,6 +385,12 @@ private extension Binding where Value == SlotEditor {
         Binding<String>(
             get: { wrappedValue.settings[key] ?? defaultValue },
             set: { wrappedValue.settings[key] = $0 }
+        )
+    }
+    func boolSetting(_ key: String, default defaultValue: Bool) -> Binding<Bool> {
+        Binding<Bool>(
+            get: { (wrappedValue.settings[key] ?? (defaultValue ? "true" : "false")) == "true" },
+            set: { wrappedValue.settings[key] = $0 ? "true" : "false" }
         )
     }
 }

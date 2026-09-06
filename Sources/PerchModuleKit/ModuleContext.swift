@@ -24,4 +24,16 @@ public struct ModuleContext: Sendable {
         guard let raw = settings["refreshSeconds"], let value = Double(raw) else { return fallback }
         return Swift.max(minimum, value)
     }
+
+    /// A boolean setting stored as "true"/"false", or `fallback` if unset.
+    public func bool(_ key: String, fallback: Bool) -> Bool {
+        guard let raw = settings[key] else { return fallback }
+        return raw == "true"
+    }
+
+    /// An integer setting, or `fallback` if unset/invalid, clamped to a range.
+    public func int(_ key: String, fallback: Int, minimum: Int = 1, maximum: Int = 100) -> Int {
+        guard let raw = settings[key], let value = Int(raw) else { return fallback }
+        return Swift.min(maximum, Swift.max(minimum, value))
+    }
 }

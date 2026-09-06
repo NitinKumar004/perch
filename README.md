@@ -45,12 +45,17 @@ drop-down panel.
 
 | Module | id | Shows | Needs |
 |---|---|---|---|
-| Build | `github.builds` | latest Actions run: passing / failing / running | GitHub |
-| Pull requests | `github.prs` | count of PRs waiting on your review | GitHub |
-| Deploy health | `deploy.health` | ping a URL: up / degraded / down | a URL |
-| CPU | `system.cpu` | system CPU %, green/amber/red | — (local) |
+| Build | `github.builds` | latest Actions run: passing / failing / running (panel: workflow · commit · duration + open-run link) | GitHub |
+| Pull requests | `github.prs` | count of PRs, plus each PR's review status — approved / changes / conflicts / draft | GitHub |
+| Deploy health | `deploy.health` | ping a URL: up / degraded / down (with hysteresis) | a URL |
+| CPU | `system.cpu` | system CPU %, green/amber/red, trend sparkline in the panel | — (local) |
+| Memory | `system.memory` | RAM in use %, with sparkline | — (local) |
+| Battery | `system.battery` | charge % + charging state | — (local) |
 | Focus timer | `focus.timer` | a local countdown / pomodoro | — (local) |
 | Clock | `system.clock` | the time | — (local) |
+
+Notifications fire on a build turning red or a new review request. Each panel
+row names what it watches (repo / branch / host); rows scroll if there are many.
 
 ## Configure
 
@@ -113,9 +118,21 @@ Everything is local. The GitHub token lives in the macOS Keychain (device-only);
 build/PR status is held in memory only. No server, no database, nothing leaves
 your Mac except the calls to GitHub itself.
 
+## Reliability
+
+- **Accuracy:** every value carries a freshness; the store applies only newer
+  values, so out-of-order/duplicate events never move state backwards.
+- **Auth:** single-flight token refresh (App refresh tokens are single-use);
+  token cached in Keychain so the OS prompts once; sign in with the app or a PAT.
+- **Resilience:** exponential backoff on API errors; auth failures and no-access
+  repos back off to a cap instead of hammering GitHub.
+- **Multi-display:** binds to the screen that has the notch and repositions when
+  displays change; floating-pill fallback on non-notch Macs.
+
 ## Status
 
-Working: GitHub build + PR modules, deploy/CPU/timer/clock, the config engine,
-the settings window, and the drop-down panel. Remaining: notarization + Sparkle
-auto-update (so it installs without building), and a non-notch floating fallback.
+Working: GitHub build + PR (with review status), deploy, CPU/memory/battery/
+timer/clock, the config engine, the settings window, the drop-down panel with
+detail + sparklines, notifications, and launch-at-login. Remaining: Sparkle
+auto-update, ETag conditional requests, and more sources (GitLab/Vercel/…).
 See `docs/roadmap.md`.

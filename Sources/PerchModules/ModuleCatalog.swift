@@ -91,6 +91,7 @@ public enum ModuleCatalog {
                 requiresConnection: false,
                 settings: [
                     ModuleSetting(key: "url", label: "Health URL", placeholder: "https://example.com/health"),
+                    Self.refreshSetting(placeholder: "20"),
                 ]),
             CatalogEntry(
                 id: VitalsModule.descriptor.id,
@@ -119,7 +120,17 @@ public enum ModuleCatalog {
                 id: ClockModule.descriptor.id,
                 name: ClockModule.descriptor.name,
                 summary: ClockModule.descriptor.summary,
-                requiresConnection: false, settings: []),
+                requiresConnection: false,
+                settings: [
+                    ModuleSetting(key: "format", label: "Time format", placeholder: "",
+                                  defaultValue: "24",
+                                  options: [
+                                    SettingOption(value: "24", label: "24-hour (14:30)"),
+                                    SettingOption(value: "12", label: "12-hour (2:30 PM)"),
+                                  ]),
+                    ModuleSetting(key: "showSeconds", label: "Show seconds", placeholder: "",
+                                  defaultValue: "false", kind: .toggle),
+                ]),
         ]
     }
 

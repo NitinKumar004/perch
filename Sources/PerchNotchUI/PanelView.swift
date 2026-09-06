@@ -126,6 +126,10 @@ struct PanelView: View {
                 Sparkline(points: points, color: tintColor(row.tint))
                     .frame(width: 64, height: 18)
             }
+            if let progress = row.progress {
+                MiniBar(value: progress, color: tintColor(row.tint))
+                    .frame(width: 56, height: 5)
+            }
             if row.url != nil {
                 Image(systemName: "arrow.up.right.square")
                     .font(.system(size: 11))

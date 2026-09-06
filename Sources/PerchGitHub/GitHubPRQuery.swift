@@ -26,10 +26,16 @@ public struct PRSummary: Sendable, Equatable {
     /// CI checks rollup on the head commit: SUCCESS / FAILURE / ERROR / PENDING / nil.
     /// This is the "why is the pipeline running / is it green" signal.
     public let checksState: String?
+    /// Total checks on the head commit (0 = none) — the denominator of "5/10".
+    public let checksTotal: Int
+    /// How many of those checks have finished — the numerator of "5/10", so a
+    /// running pipeline shows real progress instead of a spinner.
+    public let checksDone: Int
 
     public init(number: Int, title: String, repo: String, url: String,
                 reviewDecision: String? = nil, mergeable: String? = nil,
-                isDraft: Bool = false, checksState: String? = nil) {
+                isDraft: Bool = false, checksState: String? = nil,
+                checksTotal: Int = 0, checksDone: Int = 0) {
         self.number = number
         self.title = title
         self.repo = repo
@@ -38,6 +44,8 @@ public struct PRSummary: Sendable, Equatable {
         self.mergeable = mergeable
         self.isDraft = isDraft
         self.checksState = checksState
+        self.checksTotal = checksTotal
+        self.checksDone = checksDone
     }
 }
 
@@ -110,7 +118,14 @@ extension GitHubAPIClient {
               ... on PullRequest {
                 number title url isDraft reviewDecision mergeable
                 repository { nameWithOwner }
-                commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+                commits(last: 1) { nodes { commit { statusCheckRollup {
+                  state
+                  contexts(first: 100) {
+                    totalCount
+                    checkRunCountsByState { state count }
+                    statusContextCountsByState { state count }
+                  }
+                } } } }
               }
             }
           }
@@ -122,14 +137,16 @@ extension GitHubAPIClient {
         }
         let items = decoded.search.nodes.compactMap { node -> PRSummary? in
             guard let number = node.number, let title = node.title, let url = node.url else { return nil }
-            let checks = node.commits?.nodes.first?.commit?.statusCheckRollup?.state
+            let rollup = node.commits?.nodes.first?.commit?.statusCheckRollup
+            let (total, done) = GQLSearch.checkProgress(rollup?.contexts)
             return PRSummary(number: number, title: title,
                              repo: node.repository?.nameWithOwner ?? "",
                              url: url,
                              reviewDecision: node.reviewDecision,
                              mergeable: node.mergeable,
                              isDraft: node.isDraft ?? false,
-                             checksState: checks)
+                             checksState: rollup?.state,
+                             checksTotal: total, checksDone: done)
         }
         return PRListObservation(total: decoded.search.issueCount, items: items, observedAt: now)
     }
@@ -160,6 +177,29 @@ private struct GQLSearch: Decodable {
         struct Commits: Decodable { let nodes: [CommitNode] }
         struct CommitNode: Decodable { let commit: Commit? }
         struct Commit: Decodable { let statusCheckRollup: Rollup? }
-        struct Rollup: Decodable { let state: String? }
+        struct Rollup: Decodable {
+            let state: String?
+            let contexts: Contexts?
+        }
+        struct Contexts: Decodable {
+            let totalCount: Int
+            let checkRunCountsByState: [StateCount]?
+            let statusContextCountsByState: [StateCount]?
+        }
+        struct StateCount: Decodable { let state: String; let count: Int }
+    }
+
+    /// Reduce the rollup's per-state counts to (total, finished) so a running
+    /// pipeline can read "5/10". A check run is finished when COMPLETED; a legacy
+    /// status context is finished when it's no longer PENDING/EXPECTED.
+    static func checkProgress(_ contexts: Node.Contexts?) -> (total: Int, done: Int) {
+        guard let contexts else { return (0, 0) }
+        let runsDone = (contexts.checkRunCountsByState ?? [])
+            .filter { $0.state == "COMPLETED" }
+            .reduce(0) { $0 + $1.count }
+        let statusesDone = (contexts.statusContextCountsByState ?? [])
+            .filter { $0.state != "PENDING" && $0.state != "EXPECTED" }
+            .reduce(0) { $0 + $1.count }
+        return (contexts.totalCount, min(contexts.totalCount, runsDone + statusesDone))
     }
 }

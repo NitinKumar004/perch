@@ -1,5 +1,23 @@
 import SwiftUI
 
+/// A thin completion bar — a filled portion over a faint track, capsule-capped.
+/// Used to show a CI pipeline's progress (5/10 checks) at a glance, cleanly.
+struct MiniBar: View {
+    let value: Double   // 0…1
+    let color: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            let clamped = CGFloat(min(1, max(0, value)))
+            ZStack(alignment: .leading) {
+                Capsule().fill(color.opacity(0.18))
+                Capsule().fill(color)
+                    .frame(width: max(3, geo.size.width * clamped))
+            }
+        }
+    }
+}
+
 /// A tiny inline trend chart: a line over a faint filled area, most-recent value
 /// at the right with an emphasized endpoint. Scales to its frame; normalizes to
 /// the 0–100 range so vitals gauges read consistently.

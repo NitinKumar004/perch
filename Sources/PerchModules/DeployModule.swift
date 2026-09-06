@@ -34,6 +34,7 @@ public struct DeployModule: NotchModule {
         let clock = context.clock
         let probe = probe
         let urlString = context.settings["url"] ?? ""
+        let interval = context.refreshSeconds(fallback: 20, minimum: 5)
 
         return AsyncStream { continuation in
             let store = VersionedStore<String, HealthState>(clock: clock)
@@ -64,7 +65,7 @@ public struct DeployModule: NotchModule {
                     _ = await store.apply(state, forKey: key, version: now)
                     continuation.yield(Snapshot(value: state, freshness: .live, asOf: now))
 
-                    try? await Task.sleep(for: .seconds(20))
+                    try? await Task.sleep(for: .seconds(interval))
                 }
                 continuation.finish()
             }

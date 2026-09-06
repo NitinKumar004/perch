@@ -151,7 +151,7 @@ public struct GitHubPRsModule: NotchModule {
         }
         return value.items.map { pr in
             let review = Self.status(for: pr)
-            let ci = value.showChecks ? Self.ciStatus(pr.checksState) : nil
+            let ci = value.showChecks ? Self.ciStatus(pr.checksState, done: pr.checksDone, total: pr.checksTotal) : nil
             // Subtitle names the source, plus whichever of CI / review the user
             // chose to show; the row escalates to red if CI is failing.
             let parts = [pr.repo, ci?.label, value.showReview ? review.label : nil].compactMap { $0 }
@@ -162,7 +162,8 @@ public struct GitHubPRsModule: NotchModule {
                 subtitle: parts.joined(separator: " · "),
                 tint: tint,
                 symbolName: review.symbol,
-                url: pr.url)
+                url: pr.url,
+                progress: ci?.progress)
         }
     }
 
@@ -178,12 +179,19 @@ public struct GitHubPRsModule: NotchModule {
         }
     }
 
-    /// Map a PR's CI checks rollup to a short label + tint — "why is it running".
-    static func ciStatus(_ state: String?) -> (label: String, tint: Tint)? {
+    /// Map a PR's CI checks rollup to a short label, tint, and completion fraction
+    /// — the "why is the pipeline running / how far along" signal. When a run is
+    /// in flight and we know the counts, the label reads "CI 5/10" and `progress`
+    /// drives a thin bar; otherwise it's a plain passing/failing/running badge.
+    static func ciStatus(_ state: String?, done: Int = 0, total: Int = 0)
+        -> (label: String, tint: Tint, progress: Double?)? {
+        let fraction = total > 0 ? Double(done) / Double(total) : nil
         switch state {
-        case "SUCCESS":            return ("CI passing", .good)
-        case "FAILURE", "ERROR":   return ("CI failing", .critical)
-        case "PENDING":            return ("CI running", .info)
+        case "SUCCESS":            return ("CI passing", .good, nil)
+        case "FAILURE", "ERROR":   return ("CI failing", .critical, fraction)
+        case "PENDING":
+            if total > 0 { return ("CI \(done)/\(total)", .info, fraction) }
+            return ("CI running", .info, nil)
         default:                   return nil   // no checks / expected — don't clutter
         }
     }

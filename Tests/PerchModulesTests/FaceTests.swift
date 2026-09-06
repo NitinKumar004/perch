@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 import PerchCore
 import PerchModuleKit
 @testable import PerchModules
@@ -112,6 +113,33 @@ private func series(_ v: Int) -> VitalSeries { VitalSeries(current: v, history: 
     #expect(GitHubPRsModule.ciStatus("PENDING")?.label == "CI running")
     #expect(GitHubPRsModule.ciStatus(nil) == nil)          // no checks → no clutter
     #expect(GitHubPRsModule.ciStatus("EXPECTED") == nil)
+}
+
+@Test func prCIProgressReadsAsFraction() {
+    // A running pipeline with known counts reads "CI 5/10" and drives a bar.
+    let running = GitHubPRsModule.ciStatus("PENDING", done: 5, total: 10)
+    #expect(running?.label == "CI 5/10")
+    #expect(running?.tint == .info)
+    #expect(running?.progress == 0.5)
+    // Passing never shows a bar (nothing left to complete).
+    #expect(GitHubPRsModule.ciStatus("SUCCESS", done: 10, total: 10)?.progress == nil)
+    // A failing run still shows how far it got.
+    #expect(GitHubPRsModule.ciStatus("FAILURE", done: 3, total: 4)?.progress == 0.75)
+    // No counts → plain "CI running", no bar.
+    #expect(GitHubPRsModule.ciStatus("PENDING")?.label == "CI running")
+    #expect(GitHubPRsModule.ciStatus("PENDING")?.progress == nil)
+}
+
+@Test func clockRendersChosenFormat() {
+    var comps = DateComponents(); comps.year = 2026; comps.month = 9; comps.day = 6
+    comps.hour = 14; comps.minute = 30; comps.second = 7
+    let date = Calendar.current.date(from: comps)!
+    #expect(ClockModule.render(date, twelveHour: false, showSeconds: false).text == "14:30")
+    #expect(ClockModule.render(date, twelveHour: false, showSeconds: true).text == "14:30:07")
+    #expect(ClockModule.render(date, twelveHour: true, showSeconds: false).text == "2:30 PM")
+    var midnight = comps; midnight.hour = 0; midnight.minute = 5
+    let mid = Calendar.current.date(from: midnight)!
+    #expect(ClockModule.render(mid, twelveHour: true, showSeconds: false).text == "12:05 AM")
 }
 
 @Test func buildFaceColors() {

@@ -14,13 +14,17 @@ public struct DetailRow: Equatable, Sendable, Identifiable {
     public let url: String?
     /// If set, the row renders a small trend graph (most-recent value last).
     public let sparkline: [Double]?
+    /// If set (0…1), the row renders a thin progress bar — e.g. a CI pipeline at
+    /// 5/10 checks done. Distinct from `sparkline`: this is completion, not trend.
+    public let progress: Double?
     /// If set, the row renders as a tappable control emitting this action id
     /// (e.g. a timer's pause/reset). Handled by the shell's action handler.
     public let action: String?
 
     public init(id: String, title: String, subtitle: String? = nil,
                 tint: Tint = .neutral, symbolName: String? = nil,
-                url: String? = nil, sparkline: [Double]? = nil, action: String? = nil) {
+                url: String? = nil, sparkline: [Double]? = nil,
+                progress: Double? = nil, action: String? = nil) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
@@ -28,6 +32,7 @@ public struct DetailRow: Equatable, Sendable, Identifiable {
         self.symbolName = symbolName
         self.url = url
         self.sparkline = sparkline
+        self.progress = progress
         self.action = action
     }
 }

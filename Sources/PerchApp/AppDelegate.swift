@@ -30,7 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let notifier = Notifier()
     private let timerController = TimerController()
     private let clipboardController = ClipboardController()
+    private let updateChecker = UpdateChecker()
     private var configWatcher: ConfigWatcher?
+    private var updateItem: NSMenuItem?
+    private var pendingUpdateURL: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let isFirstRun = !FileManager.default.fileExists(atPath: ConfigStore.defaultFileURL.path)
@@ -62,6 +65,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // First launch: greet the user and point them at Connect + Settings.
         if isFirstRun { showWelcome() }
+
+        // Quietly check for a newer release in the background.
+        checkForUpdates(userInitiated: false)
+    }
+
+    /// Ask GitHub Releases whether a newer Perch exists. On success it updates
+    /// the menu item and (once) notifies; `userInitiated` also opens the page.
+    private func checkForUpdates(userInitiated: Bool) {
+        Task { [updateChecker, notifier] in
+            guard let info = await updateChecker.check() else {
+                if userInitiated { self.updateItem?.title = "Perch is up to date" }
+                return
+            }
+            self.pendingUpdateURL = info.pageURL
+            self.updateItem?.title = "Update available: \(info.version) — install"
+            if userInitiated, let url = URL(string: info.pageURL) {
+                NSWorkspace.shared.open(url)
+            } else {
+                notifier.post(ModuleAlert(
+                    id: "perch-update-\(info.version)",
+                    title: "Perch \(info.version) is available",
+                    body: "Open the menu-bar bird → “Update available” to install."))
+            }
+        }
+    }
+
+    @objc private func checkForUpdatesClicked() {
+        // If we already found one, clicking installs (opens the page); otherwise
+        // run a fresh check and open it if found.
+        if let url = pendingUpdateURL, let u = URL(string: url) {
+            NSWorkspace.shared.open(u)
+        } else {
+            updateItem?.title = "Checking…"
+            checkForUpdates(userInitiated: true)
+        }
     }
 
     /// Read the user's layout.json and wire the notch from it. Called at launch
@@ -206,6 +244,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let reload = NSMenuItem(title: "Reload Configuration", action: #selector(reloadConfig), keyEquivalent: "r")
         reload.target = self
         menu.addItem(reload)
+
+        menu.addItem(.separator())
+
+        let update = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdatesClicked), keyEquivalent: "")
+        update.target = self
+        menu.addItem(update)
+        updateItem = update
 
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Perch",

@@ -61,14 +61,27 @@ enum SelfUpdater {
     }
 
     /// The shell that performs the swap after this process exits, then relaunches.
-    /// Kept as a single string so it's unit-testable without running it.
-    static func swapScript(newApp: String, dest: String, pid: Int32) -> String {
-        """
+    /// Kept as a single string so it's unit-testable without running it. Paths are
+    /// safely single-quoted (any embedded quote is escaped), and if the swap fails
+    /// (e.g. a non-writable install dir) it opens the release page so the user
+    /// isn't left with a missing app and no feedback.
+    static func swapScript(newApp: String, dest: String, pid: Int32,
+                           fallbackURL: String = "https://github.com/NitinKumar004/perch/releases/latest") -> String {
+        let d = shellQuote(dest), n = shellQuote(newApp), f = shellQuote(fallbackURL)
+        return """
         while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done
-        rm -rf '\(dest)'
-        ditto '\(newApp)' '\(dest)'
-        open '\(dest)'
+        if rm -rf \(d) && ditto \(n) \(d); then
+          open \(d)
+        else
+          open \(f)
+        fi
         """
+    }
+
+    /// POSIX-safe single-quote for a shell argument: wrap in '…', and turn any
+    /// embedded ' into '\''.
+    static func shellQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private static func launchSwapScript(newApp: String, dest: String, pid: Int32) throws {

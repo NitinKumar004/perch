@@ -182,8 +182,10 @@ private func firstRender(_ module: AnyNotchModule,
     let controller = ClipboardController()
     await controller.record("hello e2e")
     let m = AnyNotchModule(ClipboardModule(controller: controller))
+    // (The module also seeds the real system pasteboard, so find the row by title.)
     let render = await firstRender(m) { r in r.detail.contains { $0.title == "hello e2e" } }
-    #expect(render?.detail.first?.action == "clip.copy:0")
+    let row = render?.detail.first { $0.title == "hello e2e" }
+    #expect(row?.action == "clip.copy:hello e2e")   // action carries the text, not an index
 }
 
 @Test func e2e_fileShelfStreamShowsDroppedFile() async {
@@ -191,7 +193,9 @@ private func firstRender(_ module: AnyNotchModule,
     await controller.add(path: "/Users/me/report.pdf")
     let m = AnyNotchModule(FileShelfModule(controller: controller))
     let render = await firstRender(m) { r in r.detail.contains { $0.title == "report.pdf" } }
-    #expect(render?.detail.first?.action == "shelf.open:0")
+    let row = render?.detail.first { $0.title == "report.pdf" }
+    #expect(row?.action == "shelf.open:/Users/me/report.pdf")           // keyed by path
+    #expect(row?.secondaryAction == "shelf.remove:/Users/me/report.pdf")
 }
 
 @Test func e2e_deployHealthReflectsConfiguredURL() async {

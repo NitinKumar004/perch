@@ -245,25 +245,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "timer.toggle": await timerController.togglePause(id: id, now: Date())
             case "timer.reset":  await timerController.reset(id: id, now: Date())
             case "clip.copy":
-                // Copy the chosen history entry back to the system pasteboard.
-                if let index = Int(id), let text = await clipboardController.entry(at: index) {
-                    await MainActor.run {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(text, forType: .string)
-                    }
+                // `id` is the exact entry text — copy it straight back, no index
+                // lookup, so a reshuffled list can't select the wrong entry.
+                await MainActor.run {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(id, forType: .string)
                 }
             case "clip.clear":
                 await clipboardController.clear()
             case "shelf.open":
-                // Reveal the stashed file in Finder.
-                if let index = Int(id), let shelfItem = await fileShelfController.item(at: index) {
-                    await MainActor.run {
-                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: shelfItem.path)])
-                    }
+                // `id` is the file path — reveal it directly in Finder.
+                await MainActor.run {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: id)])
                 }
             case "shelf.remove":
-                // Take a file off the shelf.
-                if let index = Int(id) { await fileShelfController.remove(at: index) }
+                // `id` is the file path — remove exactly that file.
+                await fileShelfController.remove(path: id)
             default: break
             }
         }

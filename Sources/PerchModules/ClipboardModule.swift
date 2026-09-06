@@ -80,12 +80,15 @@ public struct ClipboardModule: NotchModule {
                               tint: .neutral, symbolName: "doc.on.clipboard")]
         }
         var rows = value.entries.enumerated().map { index, text in
+            // Carry the full text in the action (not the list position), so a
+            // background copy that reshuffles the list can't make a click copy
+            // the wrong entry. The handler splits on the first ":" only.
             DetailRow(id: "clip-\(index)",
                       title: Self.preview(text),
                       subtitle: index == 0 ? "on the clipboard now" : "tap to copy",
                       tint: index == 0 ? .info : .neutral,
                       symbolName: "doc.on.doc",
-                      action: "clip.copy:\(index)")
+                      action: "clip.copy:\(text)")
         }
         // A footer row to wipe the whole history.
         rows.append(DetailRow(id: "clip-clear", title: "Clear history",

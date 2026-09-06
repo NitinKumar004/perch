@@ -37,6 +37,12 @@ public actor FileShelfController {
         items.remove(at: index)
     }
 
+    /// Remove by path — stable across list re-ordering, so the row you clicked is
+    /// always the file that's removed (an index would drift as items shift).
+    public func remove(path: String) {
+        items.removeAll { $0.path == path }
+    }
+
     public func snapshot() -> [ShelfItem] { items }
 
     public func item(at index: Int) -> ShelfItem? {

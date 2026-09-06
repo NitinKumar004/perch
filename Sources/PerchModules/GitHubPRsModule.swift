@@ -80,6 +80,11 @@ public struct GitHubPRsModule: NotchModule {
                         if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
                             continuation.yield(snapshot)
                         }
+                        // While a PR's checks are still running, poll fast so the
+                        // CI counter visibly climbs (0/22 → 5/22 → …) instead of
+                        // sitting frozen and jumping straight to "passing".
+                        let anyRunning = observation.items.contains { $0.checksState == "PENDING" }
+                        nextDelay = anyRunning ? min(interval, 15) : interval
                     } catch {
                         failures += 1
                         let desc = "\(error)"

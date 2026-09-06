@@ -49,12 +49,17 @@ public struct CalendarModule: NotchModule {
 
         return AsyncStream { continuation in
             let task = Task {
-                let granted = await reader.requestAccess()
-                if !granted {
-                    continuation.yield(Snapshot(value: .none, freshness: .error("no calendar access"), asOf: clock.now()))
-                    return
-                }
+                var granted = false
                 while !Task.isCancelled {
+                    // Keep re-checking access so a denied→granted change (the user
+                    // flips it in System Settings) recovers on its own, instead of
+                    // ending the stream and staying blank until a restart.
+                    if !granted { granted = await reader.requestAccess() }
+                    if !granted {
+                        continuation.yield(Snapshot(value: .none, freshness: .error("no calendar access"), asOf: clock.now()))
+                        try? await Task.sleep(for: .seconds(60))   // slow retry
+                        continue
+                    }
                     let now = clock.now()
                     let next = await reader.nextEvent(from: now, within: lookaheadHours * 3600) ?? .none
                     continuation.yield(Snapshot(value: next, freshness: .live, asOf: now))

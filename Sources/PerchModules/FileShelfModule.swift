@@ -70,13 +70,17 @@ public struct FileShelfModule: NotchModule {
                               tint: .neutral, symbolName: "tray.and.arrow.down")]
         }
         return value.items.enumerated().map { index, item in
+            // Actions carry the file's PATH (a stable identity), not its list
+            // position — so dropping a new file can't make a click hit the wrong
+            // row. The action handler splits on the first ":" only, so a path
+            // survives intact.
             DetailRow(id: "shelf-\(index)",
                       title: item.name,
                       subtitle: Self.shortPath(item.path),
                       tint: .info,
                       symbolName: "doc",
-                      action: "shelf.open:\(index)",
-                      secondaryAction: "shelf.remove:\(index)",
+                      action: "shelf.open:\(item.path)",
+                      secondaryAction: "shelf.remove:\(item.path)",
                       secondaryIcon: "xmark.circle.fill")
         }
     }

@@ -81,6 +81,16 @@ private func series(_ v: Int) -> VitalSeries { VitalSeries(current: v, history: 
     #expect(GitHubPRsModule.status(for: pr("APPROVED", draft: true)).label == "draft")
 }
 
+@Test func prCIStatusMapping() {
+    #expect(GitHubPRsModule.ciStatus("SUCCESS")?.label == "CI passing")
+    #expect(GitHubPRsModule.ciStatus("SUCCESS")?.tint == .good)
+    #expect(GitHubPRsModule.ciStatus("FAILURE")?.tint == .critical)
+    #expect(GitHubPRsModule.ciStatus("ERROR")?.tint == .critical)
+    #expect(GitHubPRsModule.ciStatus("PENDING")?.label == "CI running")
+    #expect(GitHubPRsModule.ciStatus(nil) == nil)          // no checks → no clutter
+    #expect(GitHubPRsModule.ciStatus("EXPECTED") == nil)
+}
+
 @Test func buildFaceColors() {
     let m = FakeBuildModule()
     #expect(m.face(for: .passing, in: .leftPill).tint == .good)

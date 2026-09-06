@@ -23,9 +23,13 @@ public struct PRSummary: Sendable, Equatable {
     /// GitHub `mergeable`: MERGEABLE / CONFLICTING / UNKNOWN / nil.
     public let mergeable: String?
     public let isDraft: Bool
+    /// CI checks rollup on the head commit: SUCCESS / FAILURE / ERROR / PENDING / nil.
+    /// This is the "why is the pipeline running / is it green" signal.
+    public let checksState: String?
 
     public init(number: Int, title: String, repo: String, url: String,
-                reviewDecision: String? = nil, mergeable: String? = nil, isDraft: Bool = false) {
+                reviewDecision: String? = nil, mergeable: String? = nil,
+                isDraft: Bool = false, checksState: String? = nil) {
         self.number = number
         self.title = title
         self.repo = repo
@@ -33,6 +37,7 @@ public struct PRSummary: Sendable, Equatable {
         self.reviewDecision = reviewDecision
         self.mergeable = mergeable
         self.isDraft = isDraft
+        self.checksState = checksState
     }
 }
 
@@ -105,6 +110,7 @@ extension GitHubAPIClient {
               ... on PullRequest {
                 number title url isDraft reviewDecision mergeable
                 repository { nameWithOwner }
+                commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
               }
             }
           }
@@ -116,12 +122,14 @@ extension GitHubAPIClient {
         }
         let items = decoded.search.nodes.compactMap { node -> PRSummary? in
             guard let number = node.number, let title = node.title, let url = node.url else { return nil }
+            let checks = node.commits?.nodes.first?.commit?.statusCheckRollup?.state
             return PRSummary(number: number, title: title,
                              repo: node.repository?.nameWithOwner ?? "",
                              url: url,
                              reviewDecision: node.reviewDecision,
                              mergeable: node.mergeable,
-                             isDraft: node.isDraft ?? false)
+                             isDraft: node.isDraft ?? false,
+                             checksState: checks)
         }
         return PRListObservation(total: decoded.search.issueCount, items: items, observedAt: now)
     }
@@ -147,6 +155,11 @@ private struct GQLSearch: Decodable {
         let reviewDecision: String?
         let mergeable: String?
         let repository: Repo?
+        let commits: Commits?
         struct Repo: Decodable { let nameWithOwner: String }
+        struct Commits: Decodable { let nodes: [CommitNode] }
+        struct CommitNode: Decodable { let commit: Commit? }
+        struct Commit: Decodable { let statusCheckRollup: Rollup? }
+        struct Rollup: Decodable { let state: String? }
     }
 }

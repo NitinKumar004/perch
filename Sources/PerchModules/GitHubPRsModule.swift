@@ -140,13 +140,18 @@ public struct GitHubPRsModule: NotchModule {
             return value.count == 0 ? [] : [DetailRow(id: "pr-empty", title: "\(value.count) waiting", tint: .warning)]
         }
         return value.items.map { pr in
-            let status = Self.status(for: pr)
+            let review = Self.status(for: pr)
+            let ci = Self.ciStatus(pr.checksState)
+            // Subtitle names the source + CI state + review state; the row's tint
+            // escalates to red if CI is failing (the most urgent thing to see).
+            let parts = [pr.repo, ci?.label, review.label].compactMap { $0 }
+            let tint: Tint = (ci?.tint == .critical) ? .critical : review.tint
             return DetailRow(
                 id: "pr-\(pr.repo)-\(pr.number)",
                 title: "#\(pr.number) \(pr.title)",
-                subtitle: "\(pr.repo) · \(status.label)",
-                tint: status.tint,
-                symbolName: status.symbol,
+                subtitle: parts.joined(separator: " · "),
+                tint: tint,
+                symbolName: review.symbol,
                 url: pr.url)
         }
     }
@@ -160,6 +165,16 @@ public struct GitHubPRsModule: NotchModule {
         case "CHANGES_REQUESTED": return ("changes requested", .critical, "xmark.circle.fill")
         case "REVIEW_REQUIRED":   return ("review required", .warning, "clock.fill")
         default:                  return ("open", .info, "arrow.triangle.pull")
+        }
+    }
+
+    /// Map a PR's CI checks rollup to a short label + tint — "why is it running".
+    static func ciStatus(_ state: String?) -> (label: String, tint: Tint)? {
+        switch state {
+        case "SUCCESS":            return ("CI passing", .good)
+        case "FAILURE", "ERROR":   return ("CI failing", .critical)
+        case "PENDING":            return ("CI running", .info)
+        default:                   return nil   // no checks / expected — don't clutter
         }
     }
 }

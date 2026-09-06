@@ -22,45 +22,35 @@ final class SlotBinder {
         self.notifier = notifier
     }
 
-    /// Bind a module to a slot, handing it the settings the user configured for
-    /// this placement (repo, branch, filters, …).
-    func bind(_ module: AnyNotchModule, to slot: Slot, settings: [String: String] = [:]) {
-        let context = ModuleContext(clock: baseContext.clock, settings: settings)
-        let stream = module.renderStream(context, slot: slot)
-        let task = Task { @MainActor [model, notifier] in
-            for await render in stream {
-                if let alert = render.alert { notifier.post(alert) }
-                switch slot {
-                case .leftPill:  model.leftPill = render.pill
-                case .rightPill: model.rightPill = render.pill
-                case .panel:     break
-                }
-            }
-        }
-        tasks.append(task)
+    /// Seed a panel row so ordering is stable before the first value arrives.
+    func seedPanelItem(id: String, module: AnyNotchModule) {
+        model.panelItems.append(PanelItem(
+            id: id, title: module.descriptor.name,
+            content: PillContent(face: module.descriptor.placeholderFace, freshness: .unknown, asOf: Date())))
     }
 
-    /// Bind a module into the panel stack at `index`, labelled with its name.
-    /// Panel rows update independently as each module streams new content, and
-    /// carry both the header pill and the module's detail rows.
-    func bindPanel(_ module: AnyNotchModule, at index: Int, settings: [String: String] = [:]) {
-        let id = "\(module.descriptor.id)#\(index)"
-        let title = module.descriptor.name
+    /// Bind ONE module poll (a single stream) and fan its render out to every
+    /// slot that uses the same module + settings — the pills it occupies and the
+    /// panel rows with the given ids. This coalesces duplicate pollers: a module
+    /// placed in both a pill and the panel hits the network once, not twice.
+    ///
+    /// This is correct because a module's `face` is slot-independent — the pill
+    /// looks the same wherever it sits; only the panel adds detail rows.
+    func bindShared(_ module: AnyNotchModule, settings: [String: String],
+                    pills: Set<Slot>, panelIDs: [String]) {
         let context = ModuleContext(clock: baseContext.clock, settings: settings)
-        let stream = module.renderStream(context, slot: .panel)
-
-        // Seed the row so ordering is stable before the first value arrives.
-        model.panelItems.append(PanelItem(
-            id: id, title: title,
-            content: PillContent(face: module.descriptor.placeholderFace, freshness: .unknown, asOf: Date())))
-
+        let stream = module.renderStream(context, slot: .panel)  // slot-independent face
         let task = Task { @MainActor [model, notifier] in
             for await render in stream {
                 if let alert = render.alert { notifier.post(alert) }
-                if let row = model.panelItems.firstIndex(where: { $0.id == id }) {
-                    model.panelItems[row].content = render.pill
-                    model.panelItems[row].detail = render.detail
-                    model.panelItems[row].subtitle = render.contextLabel
+                if pills.contains(.leftPill) { model.leftPill = render.pill }
+                if pills.contains(.rightPill) { model.rightPill = render.pill }
+                for id in panelIDs {
+                    if let row = model.panelItems.firstIndex(where: { $0.id == id }) {
+                        model.panelItems[row].content = render.pill
+                        model.panelItems[row].detail = render.detail
+                        model.panelItems[row].subtitle = render.contextLabel
+                    }
                 }
             }
         }

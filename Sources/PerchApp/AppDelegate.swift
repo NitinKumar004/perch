@@ -63,16 +63,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let factory = ModuleFactory(apiClient: GitHubAPIClient(auth: auth))
         let binder = SlotBinder(model: model, context: ModuleContext(), notifier: notifier)
 
-        if let left = preset.leftPill, let module = factory.makeModule(for: left) {
-            binder.bind(module, to: .leftPill, settings: left.settings)
+        // Group every placement (pills + panel rows) by (module id + settings)
+        // so identical configs share one poll instead of each fetching.
+        struct Group { let binding: SlotBinding; var pills: Set<Slot> = []; var panelIDs: [String] = [] }
+        var groups: [String: Group] = [:]
+        var order: [String] = []
+
+        func key(_ b: SlotBinding) -> String {
+            b.module + "|" + b.settings.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "&")
         }
-        if let right = preset.rightPill, let module = factory.makeModule(for: right) {
-            binder.bind(module, to: .rightPill, settings: right.settings)
+        func ensure(_ b: SlotBinding) -> String {
+            let k = key(b)
+            if groups[k] == nil { groups[k] = Group(binding: b); order.append(k) }
+            return k
         }
+
+        if let left = preset.leftPill { groups[ensure(left)]?.pills.insert(.leftPill) }
+        if let right = preset.rightPill { groups[ensure(right)]?.pills.insert(.rightPill) }
+        for (index, binding) in preset.panel.enumerated() {
+            let k = ensure(binding)
+            let id = "\(binding.module)#\(index)"
+            groups[k]?.panelIDs.append(id)
+        }
+
+        // Seed panel rows in config order, then start one shared poll per group.
         for (index, binding) in preset.panel.enumerated() {
             if let module = factory.makeModule(for: binding) {
-                binder.bindPanel(module, at: index, settings: binding.settings)
+                binder.seedPanelItem(id: "\(binding.module)#\(index)", module: module)
             }
+        }
+        for k in order {
+            guard let group = groups[k], let module = factory.makeModule(for: group.binding) else { continue }
+            binder.bindShared(module, settings: group.binding.settings,
+                              pills: group.pills, panelIDs: group.panelIDs)
         }
         self.binder = binder
     }

@@ -40,15 +40,27 @@ public struct KeychainTokenStore: TokenStore {
 
     public func save(_ token: GitHubToken) throws {
         let data = try JSONEncoder().encode(token)
-        // Atomic replace: remove any existing item, then add the fresh one.
-        SecItemDelete(baseQuery as CFDictionary)
 
+        // Single-touch write: try to add; if it already exists, update in place.
+        // (The old delete-then-add touched the keychain twice, which could
+        // trigger two authorization prompts.)
         var add = baseQuery
         add[kSecValueData as String] = data
         add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
 
-        let status = SecItemAdd(add as CFDictionary, nil)
-        guard status == errSecSuccess else { throw GitHubAuthError.keychain(status: status) }
+        let addStatus = SecItemAdd(add as CFDictionary, nil)
+        if addStatus == errSecSuccess { return }
+
+        if addStatus == errSecDuplicateItem {
+            let update: [String: Any] = [
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            ]
+            let updateStatus = SecItemUpdate(baseQuery as CFDictionary, update as CFDictionary)
+            guard updateStatus == errSecSuccess else { throw GitHubAuthError.keychain(status: updateStatus) }
+            return
+        }
+        throw GitHubAuthError.keychain(status: addStatus)
     }
 
     public func clear() throws {

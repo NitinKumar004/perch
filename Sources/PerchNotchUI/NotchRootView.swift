@@ -1,4 +1,5 @@
 import SwiftUI
+import PerchModuleKit
 
 /// The content hosted in the notch window: a left pill and a right pill with a
 /// transparent gap the exact width of the physical notch between them, so the
@@ -18,30 +19,12 @@ public struct NotchRootView: View {
 
     public var body: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 0) {
-                Group {
-                    if let left = model.leftPill {
-                        PillView(left)
-                            .contentShape(Capsule())
-                            .onTapGesture { onActivate() }
-                            .transition(.opacity)
-                    }
+            Group {
+                if model.hudPosition == .flank {
+                    flankRow
+                } else {
+                    groupedRow
                 }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-
-                // The physical notch lives here — draw nothing, and let clicks
-                // pass straight through to the menu bar underneath.
-                Color.clear.frame(width: max(model.notchWidth, 12)).allowsHitTesting(false)
-
-                Group {
-                    if let right = model.rightPill {
-                        PillView(right)
-                            .contentShape(Capsule())
-                            .onTapGesture { onActivate() }
-                            .transition(.opacity)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(height: 34)
 
@@ -55,5 +38,33 @@ public struct NotchRootView: View {
         .animation(.easeInOut(duration: 0.2), value: model.leftPill)
         .animation(.easeInOut(duration: 0.2), value: model.rightPill)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: model.isPanelOpen)
+    }
+
+    /// Pills pushed to opposite edges to flank the physical notch.
+    private var flankRow: some View {
+        HStack(spacing: 0) {
+            Group { if let left = model.leftPill { pill(left) } }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            // The physical notch lives here — draw nothing, pass clicks through.
+            Color.clear.frame(width: max(model.notchWidth, 12)).allowsHitTesting(false)
+            Group { if let right = model.rightPill { pill(right) } }
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Pills grouped together (right-of-notch / below layouts).
+    private var groupedRow: some View {
+        HStack(spacing: 6) {
+            if let left = model.leftPill { pill(left) }
+            if let right = model.rightPill { pill(right) }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private func pill(_ content: PillContent) -> some View {
+        PillView(content)
+            .contentShape(Capsule())
+            .onTapGesture { onActivate() }
+            .transition(.opacity)
     }
 }

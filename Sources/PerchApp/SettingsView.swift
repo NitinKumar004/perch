@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var showTokenField = false
     @State private var tokenText = ""
     @State private var launchAtLogin = LoginItem.isEnabled
+    @State private var hudPosition: String
 
     private let presetName: String
     private let baseConfig: LayoutConfig
@@ -45,6 +46,7 @@ struct SettingsView: View {
         _left = State(initialValue: SlotEditor(binding: preset.leftPill))
         _right = State(initialValue: SlotEditor(binding: preset.rightPill))
         _panel = State(initialValue: preset.panel.map(SlotEditor.init(binding:)))
+        _hudPosition = State(initialValue: config.hudPosition)
     }
 
     var body: some View {
@@ -53,6 +55,8 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     connectionCard
+                    Divider()
+                    positionSection
                     Divider()
                     slotSection(title: "Left pill",
                                 caption: "The icon just left of the notch.",
@@ -88,6 +92,23 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
+    }
+
+    // MARK: - HUD position
+
+    private var positionSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("HUD position").font(.system(size: 13, weight: .semibold))
+            Picker("", selection: $hudPosition) {
+                Text("Flank the notch").tag("flank")
+                Text("Right of the notch").tag("right")
+                Text("Below the menu bar").tag("below")
+            }
+            .labelsHidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Use “Right of the notch” if the pills overlap your menus; “Below” suits non-notch displays.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+        }
     }
 
     // MARK: - GitHub connection
@@ -272,6 +293,7 @@ struct SettingsView: View {
         preset.rightPill = right.toBinding()
         preset.panel = panel.compactMap { $0.toBinding() }
         config.presets[config.activePreset] = preset
+        config.hudPosition = hudPosition
         onSave(config)
     }
 

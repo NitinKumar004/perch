@@ -18,7 +18,9 @@ public final class NotchWindowController {
     private let model: NotchViewModel
 
     private let pillZone: CGFloat = 220
+    private let groupedWidth: CGFloat = 280
     private let panelDrop: CGFloat = 320
+    private var position: HUDPosition = .flank
 
     public init(model: NotchViewModel,
                 onActivate: @escaping () -> Void = {},
@@ -68,6 +70,13 @@ public final class NotchWindowController {
 
     @objc private func screensChanged() { applyGeometry(animated: false) }
 
+    /// Change where the HUD sits, and re-lay it out.
+    public func setPosition(_ position: HUDPosition) {
+        self.position = position
+        model.hudPosition = position
+        applyGeometry(animated: false)
+    }
+
     /// The screen with a real hardware notch, or the main screen as a fallback.
     private func notchScreen() -> NSScreen? {
         NSScreen.screens.first { NotchGeometry.metrics(for: $0).hasNotch } ?? NSScreen.main
@@ -77,16 +86,33 @@ public final class NotchWindowController {
     private func applyGeometry(animated: Bool = false) {
         guard let screen = notchScreen() else { return }
         let metrics = NotchGeometry.metrics(for: screen)
-
-        model.notchWidth = metrics.notchWidth
-
-        let width = metrics.notchWidth + pillZone * 2
+        let frameRect = metrics.screenFrame
         let collapsedHeight = max(metrics.notchHeight, 32)
         let height = model.isPanelOpen ? collapsedHeight + panelDrop : collapsedHeight
-        let originX = metrics.screenFrame.midX - width / 2
 
-        // Sit flush in the menu bar, flanking the notch — the intended look.
-        let originY = metrics.screenFrame.maxY - height
+        let width: CGFloat
+        let originX: CGFloat
+        let originY: CGFloat
+        switch position {
+        case .flank:
+            // Pills flank the physical notch, flush in the menu bar.
+            model.notchWidth = metrics.notchWidth
+            width = metrics.notchWidth + pillZone * 2
+            originX = frameRect.midX - width / 2
+            originY = frameRect.maxY - height
+        case .right:
+            // Grouped just right of the notch — clear of the app menus (left).
+            model.notchWidth = 0
+            width = groupedWidth
+            originX = frameRect.midX + metrics.notchWidth / 2
+            originY = frameRect.maxY - height
+        case .below:
+            // Grouped, centered, hanging just below the menu bar (non-notch).
+            model.notchWidth = 0
+            width = groupedWidth
+            originX = frameRect.midX - width / 2
+            originY = frameRect.maxY - height - metrics.notchHeight
+        }
         let frame = NSRect(x: originX, y: originY, width: width, height: height)
 
         if animated {

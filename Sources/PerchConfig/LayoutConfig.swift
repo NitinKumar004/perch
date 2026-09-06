@@ -17,13 +17,26 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
     public var activePreset: String
     /// Named layouts the user can switch between.
     public var presets: [String: Preset]
+    /// Where the HUD sits: "flank" (default), "right", or "below".
+    public var hudPosition: String
 
     public init(schemaVersion: Int = LayoutConfig.currentVersion,
                 activePreset: String,
-                presets: [String: Preset]) {
+                presets: [String: Preset],
+                hudPosition: String = "flank") {
         self.schemaVersion = schemaVersion
         self.activePreset = activePreset
         self.presets = presets
+        self.hudPosition = hudPosition
+    }
+
+    // Decode with a default so older config files (no hudPosition) still load.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        activePreset = try c.decode(String.self, forKey: .activePreset)
+        presets = try c.decode([String: Preset].self, forKey: .presets)
+        hudPosition = try c.decodeIfPresent(String.self, forKey: .hudPosition) ?? "flank"
     }
 
     /// The preset currently in effect, falling back to the first preset by name

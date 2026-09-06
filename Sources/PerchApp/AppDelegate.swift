@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.panelItems = []   // reset so re-applying never duplicates rows
 
         let config = configStore.load()
+        windowController?.setPosition(HUDPosition(rawValue: config.hudPosition) ?? .flank)
         guard let preset = config.current else { return }
 
         let factory = ModuleFactory(apiClient: GitHubAPIClient(auth: auth), timerController: timerController)

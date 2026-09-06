@@ -25,8 +25,21 @@ public final class NotchViewModel {
     /// Width of the physical notch gap, updated when displays change so the pills
     /// stay flush on either side (0 on non-notch Macs → pills sit together).
     public var notchWidth: CGFloat = 0
+    /// Where the HUD sits — drives both the window frame and the pill layout.
+    public var hudPosition: HUDPosition = .flank
 
     public init() {}
+}
+
+/// Where the HUD sits on screen.
+public enum HUDPosition: String, Sendable, CaseIterable {
+    /// Flanking the notch in the menu bar (the intended look on notch Macs).
+    case flank
+    /// Both pills grouped just right of the notch — dodges the app menus on the
+    /// left, good when the menu bar is busy.
+    case right
+    /// Grouped and hanging just below the menu bar — for non-notch displays.
+    case below
 }
 
 /// One module's section in the panel: a header (name + its pill) and the detail

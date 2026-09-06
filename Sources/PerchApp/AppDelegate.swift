@@ -199,7 +199,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             config: config,
             isConnected: { [auth] in await auth.isConnected() },
             onConnect: { [weak self] in self?.startConnect() },
-            onUseToken: { [weak self] pat in self?.signInWithToken(pat) }
+            onUseToken: { [weak self] pat in self?.signInWithToken(pat) },
+            onUseCLI: { [weak self] in self?.signInWithGitHubCLI() }
         ) { [weak self] edited in
             guard let self else { return }
             try? self.configStore.save(edited)
@@ -213,11 +214,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !pat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         Task {
             try? await auth.signIn(withPersonalAccessToken: pat)
-            model.isConnected = true
-            connectItem?.title = "GitHub: connected ✓"
-            connectItem?.isEnabled = false
+            markConnected()
             applyConfig()
         }
+    }
+
+    /// Sign in by borrowing the GitHub CLI's token — one click, sees everything
+    /// the user's `gh` login can. Reports back if `gh` is missing or logged out.
+    private func signInWithGitHubCLI() {
+        Task {
+            let outcome = await Task.detached { GitHubCLI.fetchToken() }.value
+            switch outcome {
+            case .token(let token):
+                try? await auth.signIn(withPersonalAccessToken: token)
+                markConnected()
+                applyConfig()
+            case .notInstalled:
+                connectItem?.title = "GitHub CLI (gh) not found"
+            case .notLoggedIn:
+                connectItem?.title = "Run `gh auth login` first"
+            }
+        }
+    }
+
+    private func markConnected() {
+        model.isConnected = true
+        connectItem?.title = "GitHub: connected ✓"
+        connectItem?.isEnabled = false
     }
 
     private func refreshConnectItem() {

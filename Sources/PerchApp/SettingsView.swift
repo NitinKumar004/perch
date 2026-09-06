@@ -26,6 +26,7 @@ struct SettingsView: View {
     private let isConnected: () async -> Bool
     private let onConnect: () -> Void
     private let onUseToken: (String) -> Void
+    private let onUseCLI: () -> Void
 
     private let catalog = ModuleCatalog.all()
 
@@ -34,6 +35,7 @@ struct SettingsView: View {
         isConnected: @escaping () async -> Bool = { false },
         onConnect: @escaping () -> Void = {},
         onUseToken: @escaping (String) -> Void = { _ in },
+        onUseCLI: @escaping () -> Void = {},
         onSave: @escaping (LayoutConfig) -> Void
     ) {
         self.baseConfig = config
@@ -41,6 +43,7 @@ struct SettingsView: View {
         self.isConnected = isConnected
         self.onConnect = onConnect
         self.onUseToken = onUseToken
+        self.onUseCLI = onUseCLI
         let preset = config.current ?? Preset()
         self.presetName = config.activePreset
         _left = State(initialValue: SlotEditor(binding: preset.leftPill))
@@ -129,7 +132,11 @@ struct SettingsView: View {
                 case .some(true):
                     Text("Connected").font(.system(size: 12, weight: .medium)).foregroundStyle(.green)
                 case .some(false):
-                    Button("Connect GitHub") { onConnect() }.controlSize(.regular)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        // One-click: reuse the gh CLI login (sees private repos).
+                        Button("Use GitHub CLI") { onUseCLI() }.controlSize(.regular)
+                        Button("Connect with browser") { onConnect() }.controlSize(.small)
+                    }
                 case .none:
                     ProgressView().controlSize(.small)
                 }

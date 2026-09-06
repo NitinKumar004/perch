@@ -89,6 +89,11 @@ public enum ModuleCatalog {
                 summary: MemoryModule.descriptor.summary,
                 requiresConnection: false, settings: []),
             CatalogEntry(
+                id: BatteryModule.descriptor.id,
+                name: BatteryModule.descriptor.name,
+                summary: BatteryModule.descriptor.summary,
+                requiresConnection: false, settings: []),
+            CatalogEntry(
                 id: TimerModule.descriptor.id,
                 name: TimerModule.descriptor.name,
                 summary: TimerModule.descriptor.summary,

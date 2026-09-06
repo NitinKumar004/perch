@@ -17,6 +17,7 @@ struct SettingsView: View {
     @State private var connected: Bool?   // nil = still checking
     @State private var showTokenField = false
     @State private var tokenText = ""
+    @State private var launchAtLogin = LoginItem.isEnabled
 
     private let presetName: String
     private let baseConfig: LayoutConfig
@@ -251,6 +252,13 @@ struct SettingsView: View {
 
     private var footer: some View {
         HStack {
+            if LoginItem.isAvailable {
+                Toggle("Launch at login", isOn: Binding(
+                    get: { launchAtLogin },
+                    set: { launchAtLogin = $0; LoginItem.setEnabled($0) }))
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 12))
+            }
             Spacer()
             Button("Save") { save() }.keyboardShortcut(.defaultAction)
         }

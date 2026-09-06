@@ -346,23 +346,86 @@ struct SettingsView: View {
         }
     }
 
+    /// Where a clashing module is already placed — so a disabled item can explain
+    /// itself ("in the right pill") instead of just vanishing from the list.
+    private func inUseReason(_ id: String, for kind: SlotKind) -> String {
+        switch kind {
+        case .left:  return "in right pill"
+        case .right: return "in left pill"
+        case .panel: return "already in the panel"
+        }
+    }
+
     /// A module picker whose choices are grouped by what they need, so the
     /// local-vs-GitHub distinction is obvious *before* you pick. Only modules
     /// that would genuinely clash for this slot are hidden (see `SlotKind`).
     private func modulePicker(editor: Binding<SlotEditor>, kind: SlotKind) -> some View {
         let taken = clashingModuleIDs(for: kind).subtracting([editor.wrappedValue.moduleID])
-        return Picker("Module", selection: editor.moduleID) {
-            Text("— none —").tag("")
+        let selected = catalog.first { $0.id == editor.wrappedValue.moduleID }
+        // A Menu (not a Picker) so the closed control shows only the chosen name,
+        // while each item explains itself — "Name — what it does" — so you know
+        // what you're picking before you pick it.
+        return Menu {
+            Button("— none —") { editor.wrappedValue.moduleID = "" }
             ForEach(ModuleGroup.allCases, id: \.self) { group in
-                let entries = catalog.filter { self.group(for: $0) == group && !taken.contains($0.id) }
+                let entries = catalog.filter { self.group(for: $0) == group }
                 if !entries.isEmpty {
                     Section(group.label) {
-                        ForEach(entries) { entry in Text(entry.name).tag(entry.id) }
+                        ForEach(entries) { entry in
+                            // Show every module. A clashing one stays visible but
+                            // disabled, with a note saying where it already lives —
+                            // so it never looks "missing".
+                            if taken.contains(entry.id) {
+                                Button("\(Self.pickerLabel(for: entry))  (\(inUseReason(entry.id, for: kind)))") {}
+                                    .disabled(true)
+                            } else {
+                                Button(Self.pickerLabel(for: entry)) {
+                                    editor.wrappedValue.moduleID = entry.id
+                                }
+                            }
+                        }
                     }
                 }
             }
+        } label: {
+            HStack {
+                Text(selected?.name ?? "— none —")
+                    .foregroundStyle(selected == nil ? .secondary : .primary)
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 10)).foregroundStyle(.secondary)
+            }
         }
-        .labelsHidden()
+        .menuStyle(.borderlessButton)
+        .padding(.horizontal, 8).padding(.vertical, 5)
+        .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.5)))
+    }
+
+    /// A compact "Name — short tag" for a menu item: scannable, never a full
+    /// sentence. The full summary still shows below the picker once selected.
+    static func pickerLabel(for entry: CatalogEntry) -> String {
+        let tag: String
+        switch entry.id {
+        case "system.cpu":          tag = "usage %"
+        case "system.memory":       tag = "RAM in use"
+        case "system.network":      tag = "up / down"
+        case "system.thermal":      tag = "heat warning"
+        case "system.swap":         tag = "thrash warning"
+        case "system.load":         tag = "system load"
+        case "system.disk":         tag = "free space"
+        case "system.clipboard":    tag = "recent copies"
+        case "system.fileshelf":    tag = "stash files"
+        case "system.port":         tag = "port up?"
+        case "system.battery":      tag = "charge %"
+        case "focus.timer":         tag = "pomodoro"
+        case "system.calendar":     tag = "next meeting"
+        case "system.clock":        tag = "the time"
+        case "github.builds":       tag = "one repo's CI"
+        case "github.builds.multi": tag = "many repos' CI"
+        case "github.prs":          tag = "review queue"
+        case "deploy.health":       tag = "URL up / down"
+        default:                    tag = ""
+        }
+        return tag.isEmpty ? entry.name : "\(entry.name)  ·  \(tag)"
     }
 
     @ViewBuilder

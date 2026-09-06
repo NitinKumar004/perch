@@ -119,6 +119,30 @@ public enum ModuleCatalog {
                 summary: NetworkModule.descriptor.summary,
                 requiresConnection: false, settings: [Self.refreshSetting(placeholder: "2")]),
             CatalogEntry(
+                id: ThermalModule.descriptor.id,
+                name: ThermalModule.descriptor.name,
+                summary: ThermalModule.descriptor.summary,
+                requiresConnection: false, settings: [Self.refreshSetting(placeholder: "5")]),
+            CatalogEntry(
+                id: SwapModule.descriptor.id,
+                name: SwapModule.descriptor.name,
+                summary: SwapModule.descriptor.summary,
+                requiresConnection: false, settings: [Self.refreshSetting(placeholder: "3")]),
+            CatalogEntry(
+                id: LoadModule.descriptor.id,
+                name: LoadModule.descriptor.name,
+                summary: LoadModule.descriptor.summary,
+                requiresConnection: false, settings: [Self.refreshSetting(placeholder: "3")]),
+            CatalogEntry(
+                id: DiskModule.descriptor.id,
+                name: DiskModule.descriptor.name,
+                summary: DiskModule.descriptor.summary,
+                requiresConnection: false,
+                settings: [
+                    ModuleSetting(key: "path", label: "Volume path", placeholder: "/", defaultValue: "/"),
+                    Self.refreshSetting(placeholder: "30"),
+                ]),
+            CatalogEntry(
                 id: ClipboardModule.descriptor.id,
                 name: ClipboardModule.descriptor.name,
                 summary: ClipboardModule.descriptor.summary,

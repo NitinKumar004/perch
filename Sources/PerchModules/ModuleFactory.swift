@@ -60,6 +60,18 @@ public struct ModuleFactory: Sendable {
         case MemoryModule.descriptor.id:
             return AnyNotchModule(MemoryModule())
 
+        case ThermalModule.descriptor.id:
+            return AnyNotchModule(ThermalModule())
+
+        case SwapModule.descriptor.id:
+            return AnyNotchModule(SwapModule())
+
+        case LoadModule.descriptor.id:
+            return AnyNotchModule(LoadModule())
+
+        case DiskModule.descriptor.id:
+            return AnyNotchModule(DiskModule())
+
         case BatteryModule.descriptor.id:
             return AnyNotchModule(BatteryModule())
 

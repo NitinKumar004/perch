@@ -168,6 +168,19 @@ private func firstRender(_ module: AnyNotchModule,
     #expect(render?.detail.first?.subtitle?.contains("listening") == true)
 }
 
+@Test func e2e_systemSafetyModulesProduceLiveValues() async {
+    // These read the real OS, so we assert they reach .live with a sane face.
+    let thermal = await firstRender(AnyNotchModule(ThermalModule()), settings: ["refreshSeconds": "1"]) { $0.pill.freshness == .live }
+    #expect(["Cool", "Warm", "Hot", "Critical"].contains(thermal?.pill.face.text ?? ""))
+
+    let load = await firstRender(AnyNotchModule(LoadModule()), settings: ["refreshSeconds": "1"]) { $0.pill.freshness == .live }
+    #expect(load?.pill.face.text.contains("Load") == true)
+
+    let disk = await firstRender(AnyNotchModule(DiskModule()), settings: ["path": "/", "refreshSeconds": "5"]) { $0.pill.freshness == .live }
+    #expect(disk?.pill.face.text.contains("Disk") == true)
+    #expect(disk?.detail.first?.subtitle?.contains("free") == true)
+}
+
 @Test func e2e_networkAndVitalsProduceLiveValues() async {
     let net = await firstRender(AnyNotchModule(NetworkModule()), settings: ["refreshSeconds": "1"]) {
         $0.pill.freshness == .live

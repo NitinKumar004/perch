@@ -27,4 +27,15 @@ enum MemoryReader {
                     + Double(stats.compressor_page_count)) * pageSize
         return min(100, max(0, (used / total) * 100))
     }
+
+    /// Swap in use, in bytes, via `sysctl(VM_SWAPUSAGE)`. Rising swap is the
+    /// classic "the Mac is thrashing and about to stall" signal. nil on error.
+    static func swapUsedBytes() -> UInt64? {
+        var usage = xsw_usage()
+        var size = MemoryLayout<xsw_usage>.stride
+        var mib: [Int32] = [CTL_VM, VM_SWAPUSAGE]
+        let result = sysctl(&mib, 2, &usage, &size, nil, 0)
+        guard result == 0 else { return nil }
+        return usage.xsu_used
+    }
 }

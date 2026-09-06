@@ -20,7 +20,10 @@ public struct PillView: View {
             if let symbol = content.face.symbolName {
                 Image(systemName: symbol)
                     .font(.system(size: 10, weight: .semibold))
-            }
+                    .imageScale(.small)
+                    .frame(width: 13, height: 13)   // fixed icon box; the glyph is
+                    .clipped()                       // centred and can't spill onto
+            }                                        // the text (no .fixedSize here)
             Text(content.face.text)
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .lineLimit(1)
@@ -30,8 +33,8 @@ public struct PillView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .fixedSize()   // natural size — stops the flank layout compressing the
-                       // icon over the text (the cramped/overlapping pill bug)
+        .fixedSize()   // the whole pill sizes to content, so the flank layout can't
+                       // compress it (kept only on the container, not the children)
         .foregroundStyle(tintColor)
         .padding(.horizontal, 8)
         .padding(.vertical, 3)

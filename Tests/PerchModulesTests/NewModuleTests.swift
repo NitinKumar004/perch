@@ -64,6 +64,66 @@ import PerchModuleKit
     #expect(m.face(for: .down, in: .leftPill).tint == .critical)
 }
 
+// MARK: - System safety modules (thermal / swap / load / disk)
+
+@Test func thermalMapsStateToTintAndAlerts() {
+    #expect(ThermalModule.tint(.cool) == .good)
+    #expect(ThermalModule.tint(.warm) == .good)
+    #expect(ThermalModule.tint(.hot) == .warning)
+    #expect(ThermalModule.tint(.critical) == .critical)
+    #expect(ThermalLevel.from(.nominal) == .cool)
+    #expect(ThermalLevel.from(.critical) == .critical)
+    let m = ThermalModule()
+    // Alerts only on the transition INTO hot/critical, not on every poll.
+    #expect(m.notification(for: .hot, previous: .warm) != nil)
+    #expect(m.notification(for: .hot, previous: .hot) == nil)   // already hot → no repeat within an episode
+    #expect(m.notification(for: .warm, previous: .cool) == nil) // warming but not hot
+    #expect(m.notification(for: .hot, previous: nil) == nil)    // no baseline yet
+    // Each rising-edge episode carries a distinct id, so a later overheating
+    // isn't silently deduped by the notifier's permanent id memory.
+    #expect(m.notification(for: .hot, previous: .warm)?.id.hasPrefix("thermal-hot-") == true)
+}
+
+@Test func swapThresholdsAndHumanFormat() {
+    let gb: UInt64 = 1_073_741_824
+    #expect(SwapModule.tint(0) == .good)
+    #expect(SwapModule.tint(gb / 2) == .good)
+    #expect(SwapModule.tint(gb) == .warning)
+    #expect(SwapModule.tint(4 * gb) == .critical)
+    #expect(SwapModule.human(0) == "0 B")
+    #expect(SwapModule.human(512 * 1024) == "512 KB")
+    #expect(SwapModule.human(UInt64(2.5 * Double(gb))) == "2.5 GB")
+    let m = SwapModule()
+    #expect(m.notification(for: 4 * gb, previous: gb) != nil)   // crossed 3 GB
+    #expect(m.notification(for: 4 * gb, previous: 4 * gb) == nil)
+    #expect(m.face(for: 0, in: .rightPill).text == "Swap 0")
+}
+
+@Test func loadRatioTint() {
+    func s(_ load: Double, _ cores: Int) -> LoadSample { LoadSample(oneMinute: load, cores: cores) }
+    #expect(s(2, 8).ratio == 0.25)
+    #expect(LoadModule.tint(s(2, 8).ratio) == .good)      // 0.25/core
+    #expect(LoadModule.tint(s(6, 8).ratio) == .warning)   // 0.75/core
+    #expect(LoadModule.tint(s(10, 8).ratio) == .critical) // 1.25/core
+    #expect(LoadModule().face(for: s(3.4, 8), in: .rightPill).text == "Load 3.4")
+}
+
+@Test func diskUsedPercentAndTint() {
+    let s = DiskSample(freeBytes: 20_000_000_000, totalBytes: 100_000_000_000)
+    #expect(s.usedPercent == 80)
+    #expect(DiskModule.tint(80) == .good)
+    #expect(DiskModule.tint(88) == .warning)
+    #expect(DiskModule.tint(97) == .critical)
+    #expect(DiskSample.zero.usedPercent == 0)   // no divide-by-zero
+    // Purgeable space can make "free" exceed total → used must clamp to 0, not go negative.
+    #expect(DiskSample(freeBytes: 250_000_000_000, totalBytes: 245_000_000_000).usedPercent == 0)
+    let m = DiskModule()
+    let low = DiskSample(freeBytes: 3_000_000_000, totalBytes: 100_000_000_000) // 97% used
+    let ok = DiskSample(freeBytes: 50_000_000_000, totalBytes: 100_000_000_000) // 50%
+    #expect(m.notification(for: low, previous: ok) != nil)
+    #expect(m.notification(for: low, previous: low) == nil)
+}
+
 // MARK: - detailFirst (list modules surface in the panel when pilled)
 
 @Test func detailFirstModulesAreFlagged() {

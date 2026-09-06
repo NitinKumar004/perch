@@ -78,7 +78,7 @@ public struct ClipboardModule: NotchModule {
                               subtitle: "Copy something and it appears here.",
                               tint: .neutral, symbolName: "doc.on.clipboard")]
         }
-        return value.entries.enumerated().map { index, text in
+        var rows = value.entries.enumerated().map { index, text in
             DetailRow(id: "clip-\(index)",
                       title: Self.preview(text),
                       subtitle: index == 0 ? "on the clipboard now" : "tap to copy",
@@ -86,6 +86,11 @@ public struct ClipboardModule: NotchModule {
                       symbolName: "doc.on.doc",
                       action: "clip.copy:\(index)")
         }
+        // A footer row to wipe the whole history.
+        rows.append(DetailRow(id: "clip-clear", title: "Clear history",
+                              tint: .neutral, symbolName: "trash",
+                              action: "clip.clear:all"))
+        return rows
     }
 
     /// A single-line, bounded preview so a huge copy doesn't blow out the row.

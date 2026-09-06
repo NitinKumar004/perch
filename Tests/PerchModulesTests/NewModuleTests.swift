@@ -122,6 +122,8 @@ import PerchModuleKit
     #expect(await c.snapshot() == ["two", "four", "three"])
     #expect(await c.entry(at: 0) == "two")
     #expect(await c.entry(at: 9) == nil)
+    await c.clear()
+    #expect(await c.snapshot().isEmpty)   // "Clear history" wipes it
 }
 
 @Test func clipboardPreviewAndRows() {
@@ -132,6 +134,8 @@ import PerchModuleKit
     #expect(rows[0].action == "clip.copy:0")
     #expect(rows[0].subtitle == "on the clipboard now")
     #expect(rows[1].action == "clip.copy:1")
+    // A trailing "Clear history" row wipes everything.
+    #expect(rows.last?.action == "clip.clear:all")
     // Empty history shows a friendly placeholder, no actions.
     #expect(m.detail(for: .empty)[0].action == nil)
 }
@@ -159,6 +163,8 @@ import PerchModuleKit
     #expect(snap.map(\.name) == ["c.txt", "b.txt"])
     await c.remove(at: 0)
     #expect(await c.snapshot().map(\.name) == ["b.txt"])
+    await c.clear()
+    #expect(await c.snapshot().isEmpty)      // clear empties the shelf
     #expect(FileShelfModule.shortPath("/Users/me/deep/dir/file.txt") == "…/dir/file.txt")
     #expect(FileShelfModule.shortPath("/a") == "/a")
 }
@@ -167,6 +173,7 @@ import PerchModuleKit
     let m = FileShelfModule(controller: FileShelfController())
     let rows = m.detail(for: ShelfState(items: [ShelfItem(path: "/x/y.txt", name: "y.txt")]))
     #expect(rows[0].action == "shelf.open:0")
+    #expect(rows[0].secondaryAction == "shelf.remove:0")   // per-file remove
     #expect(rows[0].title == "y.txt")
     // Empty shows guidance, no action.
     #expect(m.detail(for: .empty)[0].action == nil)

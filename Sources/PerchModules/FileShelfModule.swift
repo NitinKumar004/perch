@@ -74,7 +74,9 @@ public struct FileShelfModule: NotchModule {
                       subtitle: Self.shortPath(item.path),
                       tint: .info,
                       symbolName: "doc",
-                      action: "shelf.open:\(index)")
+                      action: "shelf.open:\(index)",
+                      secondaryAction: "shelf.remove:\(index)",
+                      secondaryIcon: "xmark.circle.fill")
         }
     }
 

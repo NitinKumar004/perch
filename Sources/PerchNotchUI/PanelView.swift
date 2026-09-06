@@ -165,14 +165,26 @@ struct PanelView: View {
         .padding(.vertical, 6)
         .contentShape(Rectangle())
 
-        if let action = row.action {
-            Button { actions.onAction(action) } label: { content }
+        // The row's primary tap (open / action / url), then an optional trailing
+        // remove button as a *sibling* — never a button nested in a button.
+        HStack(spacing: 0) {
+            if let action = row.action {
+                Button { actions.onAction(action) } label: { content }.buttonStyle(.plain)
+            } else if let urlString = row.url, let url = URL(string: urlString) {
+                Button { NSWorkspace.shared.open(url) } label: { content }.buttonStyle(.plain)
+            } else {
+                content
+            }
+            if let secondary = row.secondaryAction {
+                Button { actions.onAction(secondary) } label: {
+                    Image(systemName: row.secondaryIcon ?? "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.35))
+                }
                 .buttonStyle(.plain)
-        } else if let urlString = row.url, let url = URL(string: urlString) {
-            Button { NSWorkspace.shared.open(url) } label: { content }
-                .buttonStyle(.plain)
-        } else {
-            content
+                .padding(.trailing, 12)
+                .help("Remove")
+            }
         }
     }
 

@@ -142,6 +142,20 @@ private let epoch = Date(timeIntervalSince1970: 1_000_000)
     #expect(await http.requestCount == 0) // no network needed
 }
 
+@Test func signOutForgetsTheToken() async throws {
+    let clock = TestClock(epoch)
+    let fresh = GitHubToken(accessToken: "keep", refreshToken: nil,
+                            expiresAt: nil, refreshTokenExpiresAt: nil)
+    let auth = GitHubAuth(flow: GitHubDeviceFlow(http: FakeHTTPClient([]), clientID: "cid"),
+                          store: InMemoryTokenStore(fresh), clock: clock)
+    #expect(await auth.isConnected())          // connected to start
+    try await auth.signOut()
+    #expect(!(await auth.isConnected()))        // credential forgotten
+    await #expect(throws: GitHubAuthError.notConnected) {
+        _ = try await auth.validAccessToken()   // and no token to hand out
+    }
+}
+
 @Test func validAccessTokenThrowsWhenNotConnected() async throws {
     let auth = GitHubAuth(flow: GitHubDeviceFlow(http: FakeHTTPClient([]), clientID: "cid"),
                           store: InMemoryTokenStore(nil), clock: TestClock(epoch))

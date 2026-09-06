@@ -21,14 +21,16 @@ struct SettingsView: View {
     @State private var hudPosition: String
     @State private var autoOpenOnRed: Bool
     @State private var quietHours: String
+    @State private var config: LayoutConfig       // the whole layout being edited
+    @State private var activePreset: String       // the preset key currently shown
+    @State private var presetNameField: String    // editable name of the active preset
 
-    private let presetName: String
-    private let baseConfig: LayoutConfig
     private let onSave: (LayoutConfig) -> Void
     private let isConnected: () async -> Bool
     private let onConnect: () -> Void
     private let onUseToken: (String) -> Void
     private let onUseCLI: () -> Void
+    private let onDisconnect: () -> Void
 
     private let catalog = ModuleCatalog.all()
 
@@ -38,16 +40,23 @@ struct SettingsView: View {
         onConnect: @escaping () -> Void = {},
         onUseToken: @escaping (String) -> Void = { _ in },
         onUseCLI: @escaping () -> Void = {},
+        onDisconnect: @escaping () -> Void = {},
         onSave: @escaping (LayoutConfig) -> Void
     ) {
-        self.baseConfig = config
         self.onSave = onSave
         self.isConnected = isConnected
         self.onConnect = onConnect
         self.onUseToken = onUseToken
         self.onUseCLI = onUseCLI
-        let preset = config.current ?? Preset()
-        self.presetName = config.activePreset
+        self.onDisconnect = onDisconnect
+        // Pick a valid active preset key (fall back to the first if the named one
+        // is missing), so the editor always has something to show.
+        let activeKey = config.presets[config.activePreset] != nil
+            ? config.activePreset : (config.presets.keys.sorted().first ?? "default")
+        let preset = config.presets[activeKey] ?? Preset()
+        _config = State(initialValue: config)
+        _activePreset = State(initialValue: activeKey)
+        _presetNameField = State(initialValue: activeKey)
         _left = State(initialValue: SlotEditor(binding: preset.leftPill))
         _right = State(initialValue: SlotEditor(binding: preset.rightPill))
         _panel = State(initialValue: preset.panel.map(SlotEditor.init(binding:)))
@@ -61,6 +70,8 @@ struct SettingsView: View {
             header
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    presetSection
+                    Divider()
                     connectionCard
                     Divider()
                     positionSection
@@ -96,11 +107,96 @@ struct SettingsView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("Perch Settings").font(.system(size: 16, weight: .semibold))
-            Text("Pick what each spot shows. Preset: \(presetName)")
+            Text("Pick what each spot shows. Editing preset: \(activePreset)")
                 .font(.system(size: 12)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
+    }
+
+    // MARK: - Presets (named layouts)
+
+    private var presetSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Preset").font(.system(size: 13, weight: .semibold))
+            Text("A named layout you can switch between. Switching keeps each preset's edits.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Picker("", selection: Binding(get: { activePreset },
+                                              set: { switchPreset(to: $0) })) {
+                    ForEach(config.presets.keys.sorted(), id: \.self) { Text($0).tag($0) }
+                }
+                .labelsHidden().frame(width: 150)
+                Button { newPreset() } label: { Label("New", systemImage: "plus") }
+                    .controlSize(.small)
+                Button(role: .destructive) { deletePreset() } label: { Image(systemName: "trash") }
+                    .controlSize(.small).disabled(config.presets.count <= 1)
+                    .help("Delete this preset")
+            }
+            HStack(spacing: 8) {
+                Text("Name").font(.system(size: 12)).frame(width: 44, alignment: .leading)
+                TextField("preset name", text: $presetNameField)
+                    .textFieldStyle(.roundedBorder).frame(width: 200)
+                    .onSubmit { renameActivePreset(to: presetNameField) }
+                Text("↩ to rename").font(.system(size: 10.5)).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Save the on-screen editors back into the current preset before any switch.
+    private func commitEditors() {
+        var preset = config.presets[activePreset] ?? Preset()
+        preset.leftPill = left.toBinding()
+        preset.rightPill = right.toBinding()
+        preset.panel = panel.compactMap { $0.toBinding() }
+        config.presets[activePreset] = preset.normalizedSlots()
+    }
+
+    /// Load a preset's slots into the editors.
+    private func loadEditors(from key: String) {
+        let preset = config.presets[key] ?? Preset()
+        left = SlotEditor(binding: preset.leftPill)
+        right = SlotEditor(binding: preset.rightPill)
+        panel = preset.panel.map(SlotEditor.init(binding:))
+        presetNameField = key
+    }
+
+    private func switchPreset(to key: String) {
+        guard key != activePreset else { return }
+        commitEditors()
+        activePreset = key
+        loadEditors(from: key)
+    }
+
+    private func newPreset() {
+        commitEditors()
+        var name = "layout"; var n = 2
+        while config.presets[name] != nil { name = "layout \(n)"; n += 1 }
+        config.presets[name] = Preset()
+        activePreset = name
+        loadEditors(from: name)
+    }
+
+    private func deletePreset() {
+        guard config.presets.count > 1 else { return }
+        config.presets[activePreset] = nil
+        let next = config.presets.keys.sorted().first ?? "default"
+        activePreset = next
+        loadEditors(from: next)
+    }
+
+    private func renameActivePreset(to raw: String) {
+        let name = raw.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, name != activePreset, config.presets[name] == nil else {
+            presetNameField = activePreset   // revert an invalid/duplicate name
+            return
+        }
+        commitEditors()
+        let preset = config.presets[activePreset]
+        config.presets[activePreset] = nil
+        config.presets[name] = preset
+        activePreset = name
+        presetNameField = name
     }
 
     // MARK: - HUD position
@@ -153,7 +249,11 @@ struct SettingsView: View {
                 Spacer()
                 switch connected {
                 case .some(true):
-                    Text("Connected").font(.system(size: 12, weight: .medium)).foregroundStyle(.green)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("Connected").font(.system(size: 12, weight: .medium)).foregroundStyle(.green)
+                        Button("Disconnect") { onDisconnect(); connected = false }
+                            .controlSize(.small)
+                    }
                 case .some(false):
                     VStack(alignment: .trailing, spacing: 4) {
                         // One-click: reuse the gh CLI login (sees private repos).
@@ -398,20 +498,14 @@ struct SettingsView: View {
     }
 
     private func save() {
-        var config = baseConfig
-        var preset = config.current ?? Preset()
-        preset.leftPill = left.toBinding()
-        preset.rightPill = right.toBinding()
-        preset.panel = panel.compactMap { $0.toBinding() }
-        // Tidy: no duplicate panel rows, and the two pills never hold the same
-        // module. A pill may still mirror a panel module — that's intended.
-        preset = preset.normalizedSlots()
-        config.presets[config.activePreset] = preset
-        config.hudPosition = hudPosition
+        commitEditors()   // fold the on-screen slots into the active preset
+        var out = config
+        out.activePreset = activePreset
+        out.hudPosition = hudPosition
         let trimmed = quietHours.trimmingCharacters(in: .whitespaces)
-        config.global = GlobalSettings(autoOpenOnRed: autoOpenOnRed,
-                                       quietHours: trimmed.isEmpty ? nil : trimmed)
-        onSave(config)
+        out.global = GlobalSettings(autoOpenOnRed: autoOpenOnRed,
+                                    quietHours: trimmed.isEmpty ? nil : trimmed)
+        onSave(out)
     }
 
     // MARK: - Grouping

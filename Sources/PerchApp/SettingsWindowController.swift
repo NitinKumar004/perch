@@ -18,6 +18,7 @@ final class SettingsWindowController {
         onConnect: @escaping () -> Void = {},
         onUseToken: @escaping (String) -> Void = { _ in },
         onUseCLI: @escaping () -> Void = {},
+        onDisconnect: @escaping () -> Void = {},
         onSave: @escaping (LayoutConfig) -> Void
     ) {
         if let window {
@@ -28,7 +29,7 @@ final class SettingsWindowController {
 
         let view = SettingsView(config: config, isConnected: isConnected,
                                 onConnect: onConnect, onUseToken: onUseToken,
-                                onUseCLI: onUseCLI) { [weak self] edited in
+                                onUseCLI: onUseCLI, onDisconnect: onDisconnect) { [weak self] edited in
             onSave(edited)
             self?.window?.close()
         }

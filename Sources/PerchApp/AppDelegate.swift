@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var binder: SlotBinder?
     private var statusItem: NSStatusItem?
     private var connectItem: NSMenuItem?
+    private var disconnectItem: NSMenuItem?
     private var isConnecting = false
 
     // GitHub auth is created once and shared by the API client.
@@ -230,7 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let parts = action.split(separator: ":", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { return }
         let (verb, id) = (parts[0], parts[1])
-        Task { [timerController, clipboardController] in
+        Task { [timerController, clipboardController, fileShelfController] in
             switch verb {
             case "timer.toggle": await timerController.togglePause(id: id, now: Date())
             case "timer.reset":  await timerController.reset(id: id, now: Date())
@@ -242,6 +243,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         NSPasteboard.general.setString(text, forType: .string)
                     }
                 }
+            case "clip.clear":
+                await clipboardController.clear()
             case "shelf.open":
                 // Reveal the stashed file in Finder.
                 if let index = Int(id), let shelfItem = await fileShelfController.item(at: index) {
@@ -249,6 +252,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: shelfItem.path)])
                     }
                 }
+            case "shelf.remove":
+                // Take a file off the shelf.
+                if let index = Int(id) { await fileShelfController.remove(at: index) }
             default: break
             }
         }
@@ -283,6 +289,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         connect.target = self
         menu.addItem(connect)
         connectItem = connect
+
+        let disconnect = NSMenuItem(title: "Disconnect GitHub", action: #selector(disconnectClicked), keyEquivalent: "")
+        disconnect.target = self
+        disconnect.isEnabled = false   // enabled only once connected
+        menu.addItem(disconnect)
+        disconnectItem = disconnect
 
         menu.addItem(.separator())
 
@@ -347,7 +359,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             isConnected: { [auth] in await auth.isConnected() },
             onConnect: { [weak self] in self?.startConnect() },
             onUseToken: { [weak self] pat in self?.signInWithToken(pat) },
-            onUseCLI: { [weak self] in self?.signInWithGitHubCLI() }
+            onUseCLI: { [weak self] in self?.signInWithGitHubCLI() },
+            onDisconnect: { [weak self] in self?.disconnect() }
         ) { [weak self] edited in
             guard let self else { return }
             try? self.configStore.save(edited)
@@ -388,6 +401,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.isConnected = true
         connectItem?.title = "GitHub: connected ✓"
         connectItem?.isEnabled = false
+        disconnectItem?.isEnabled = true
     }
 
     private func refreshConnectItem() {
@@ -396,10 +410,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.isConnected = connected
             connectItem?.title = connected ? "GitHub: connected ✓" : "Connect GitHub…"
             connectItem?.isEnabled = !connected
+            disconnectItem?.isEnabled = connected
         }
     }
 
     @objc private func connectGitHub() { startConnect() }
+
+    @objc private func disconnectClicked() { disconnect() }
+
+    /// Forget the GitHub credential — cleared from the Keychain and memory — then
+    /// re-wire so GitHub modules fall back to their signed-out state. The user can
+    /// reconnect at any time.
+    private func disconnect() {
+        Task {
+            try? await auth.signOut()
+            model.isConnected = false
+            connectItem?.title = "Connect GitHub…"
+            connectItem?.isEnabled = true
+            disconnectItem?.isEnabled = false
+            applyConfig()   // GitHub-backed modules refresh into their disconnected state
+        }
+    }
 
     /// Runs the device-flow login: shows the user their code, opens github.com,
     /// and waits for them to authorize — then the build pill starts working on

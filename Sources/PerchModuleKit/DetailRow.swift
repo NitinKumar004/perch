@@ -20,11 +20,18 @@ public struct DetailRow: Equatable, Sendable, Identifiable {
     /// If set, the row renders as a tappable control emitting this action id
     /// (e.g. a timer's pause/reset). Handled by the shell's action handler.
     public let action: String?
+    /// If set, a small trailing button emits this action id (e.g. remove a
+    /// shelf file) — separate from the row's primary tap so a row can be both
+    /// "open" and "remove".
+    public let secondaryAction: String?
+    /// SF Symbol for the secondary button (defaults to a remove ✕).
+    public let secondaryIcon: String?
 
     public init(id: String, title: String, subtitle: String? = nil,
                 tint: Tint = .neutral, symbolName: String? = nil,
                 url: String? = nil, sparkline: [Double]? = nil,
-                progress: Double? = nil, action: String? = nil) {
+                progress: Double? = nil, action: String? = nil,
+                secondaryAction: String? = nil, secondaryIcon: String? = nil) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
@@ -34,6 +41,8 @@ public struct DetailRow: Equatable, Sendable, Identifiable {
         self.sparkline = sparkline
         self.progress = progress
         self.action = action
+        self.secondaryAction = secondaryAction
+        self.secondaryIcon = secondaryIcon
     }
 }
 

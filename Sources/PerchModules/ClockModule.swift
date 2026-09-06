@@ -34,8 +34,11 @@ public struct ClockModule: NotchModule {
     }
 
     public func face(for value: Date, in slot: Slot) -> PillFace {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return PillFace(text: formatter.string(from: value), symbolName: nil, tint: .neutral, tooltip: "Local time")
+        // Built from calendar components rather than a DateFormatter — `face` is
+        // called every second, and this avoids allocating a formatter each time
+        // (and sidesteps DateFormatter's non-Sendable global caching).
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: value)
+        let text = String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
+        return PillFace(text: text, symbolName: nil, tint: .neutral, tooltip: "Local time")
     }
 }

@@ -26,10 +26,11 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
         self.presets = presets
     }
 
-    /// The preset currently in effect, falling back to any preset if the named
-    /// one is missing (so a hand-edited file can't leave the app with nothing).
+    /// The preset currently in effect, falling back to the first preset by name
+    /// if the named one is missing (deterministic — dictionary order isn't — so
+    /// a hand-edited file can't leave the app with nothing, or pick at random).
     public var current: Preset? {
-        presets[activePreset] ?? presets.values.first
+        presets[activePreset] ?? presets.keys.sorted().first.flatMap { presets[$0] }
     }
 }
 

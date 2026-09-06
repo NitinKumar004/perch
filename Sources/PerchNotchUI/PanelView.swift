@@ -34,6 +34,30 @@ struct PanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Rows scroll if they exceed the panel height, so a rich panel (many
+            // modules / a long PR list) never gets clipped.
+            ScrollView {
+                VStack(spacing: 0) {
+                    rows
+                }
+            }
+            .frame(maxHeight: 300)
+
+            footer
+        }
+        .padding(.vertical, 4)
+        .frame(width: 380)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.black.opacity(0.92))
+                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.08)))
+        )
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
+    }
+
+    @ViewBuilder
+    private var rows: some View {
+        VStack(spacing: 0) {
             ForEach(items) { item in
                 VStack(spacing: 0) {
                     // Header: module name (+ what it's watching) + its pill.
@@ -69,17 +93,7 @@ struct PanelView: View {
                     .foregroundStyle(.white.opacity(0.4))
                     .padding(.vertical, 14)
             }
-
-            footer
         }
-        .padding(.vertical, 4)
-        .frame(width: 380)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.black.opacity(0.92))
-                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.08)))
-        )
-        .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
     }
 
     @ViewBuilder

@@ -55,6 +55,7 @@ public enum ModuleCatalog {
                 settings: [
                     ModuleSetting(key: "repo", label: "Repository", placeholder: "owner/name"),
                     ModuleSetting(key: "branch", label: "Branch", placeholder: "main", defaultValue: "main"),
+                    Self.refreshSetting(placeholder: "60"),
                 ]),
             CatalogEntry(
                 id: GitHubPRsModule.descriptor.id,
@@ -69,6 +70,7 @@ public enum ModuleCatalog {
                                     SettingOption(value: "author", label: "PRs I opened"),
                                   ]),
                     ModuleSetting(key: "repo", label: "Repository (optional)", placeholder: "owner/name — blank = all repos"),
+                    Self.refreshSetting(placeholder: "90"),
                 ]),
             CatalogEntry(
                 id: DeployModule.descriptor.id,
@@ -82,12 +84,12 @@ public enum ModuleCatalog {
                 id: VitalsModule.descriptor.id,
                 name: VitalsModule.descriptor.name,
                 summary: VitalsModule.descriptor.summary,
-                requiresConnection: false, settings: []),
+                requiresConnection: false, settings: [Self.refreshSetting(placeholder: "2")]),
             CatalogEntry(
                 id: MemoryModule.descriptor.id,
                 name: MemoryModule.descriptor.name,
                 summary: MemoryModule.descriptor.summary,
-                requiresConnection: false, settings: []),
+                requiresConnection: false, settings: [Self.refreshSetting(placeholder: "2")]),
             CatalogEntry(
                 id: BatteryModule.descriptor.id,
                 name: BatteryModule.descriptor.name,
@@ -112,5 +114,11 @@ public enum ModuleCatalog {
     /// Look up one entry by module id.
     public static func entry(id: String) -> CatalogEntry? {
         all().first { $0.id == id }
+    }
+
+    /// The shared "refresh every N seconds" setting, so any module can offer a
+    /// user-tunable poll interval with one line.
+    static func refreshSetting(placeholder: String) -> ModuleSetting {
+        ModuleSetting(key: "refreshSeconds", label: "Refresh every (sec)", placeholder: placeholder)
     }
 }

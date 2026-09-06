@@ -19,6 +19,7 @@ public struct MemoryModule: NotchModule {
 
     public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<VitalSeries>> {
         let clock = context.clock
+        let interval = context.refreshSeconds(fallback: 2, minimum: 1)
         return AsyncStream { continuation in
             var history: [Int] = []
             let task = Task {
@@ -32,7 +33,7 @@ public struct MemoryModule: NotchModule {
                         continuation.yield(Snapshot(value: VitalSeries(current: value, history: history),
                                                     freshness: .live, asOf: now))
                     }
-                    try? await Task.sleep(for: .seconds(2))
+                    try? await Task.sleep(for: .seconds(interval))
                 }
                 continuation.finish()
             }

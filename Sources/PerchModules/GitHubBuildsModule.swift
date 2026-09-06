@@ -49,6 +49,7 @@ public struct GitHubBuildsModule: NotchModule {
         let clock = context.clock
         let client = client
         let (owner, repo, branch) = (owner, repo, branch)
+        let idleInterval = context.refreshSeconds(fallback: 60, minimum: 15)
 
         return AsyncStream { continuation in
             let store = VersionedStore<String, BuildInfo>(clock: clock)
@@ -70,7 +71,7 @@ public struct GitHubBuildsModule: NotchModule {
                         switch fetch {
                         case .notModified:
                             // Unchanged since last poll — free 304, nothing to do.
-                            nextDelay = (lastState == .running) ? 15 : 60
+                            nextDelay = (lastState == .running) ? 15 : idleInterval
                         case .ok(let observation?, let newEtag):
                             etag = newEtag
                             let info = BuildInfo(
@@ -87,7 +88,7 @@ public struct GitHubBuildsModule: NotchModule {
                             if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
                                 continuation.yield(snapshot)
                             }
-                            nextDelay = (info.state == .running) ? 15 : 60
+                            nextDelay = (info.state == .running) ? 15 : idleInterval
                         case .ok(nil, let newEtag):
                             etag = newEtag
                             if lastLog != "none" { print("[perch] build poll \(key): no runs found"); lastLog = "none" }

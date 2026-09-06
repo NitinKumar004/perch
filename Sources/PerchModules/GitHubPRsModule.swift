@@ -46,6 +46,7 @@ public struct GitHubPRsModule: NotchModule {
         let client = client
         let queue = PRQueue(rawValue: context.settings["queue"] ?? "") ?? .reviewRequested
         let repo = context.settings["repo"]
+        let interval = context.refreshSeconds(fallback: 90, minimum: 30)
 
         return AsyncStream { continuation in
             let store = VersionedStore<String, PRState>(clock: clock)
@@ -58,7 +59,7 @@ public struct GitHubPRsModule: NotchModule {
                 continuation.yield(Snapshot(value: .empty, freshness: .unknown, asOf: clock.now()))
 
                 while !Task.isCancelled {
-                    var nextDelay: Double = 90
+                    var nextDelay: Double = interval
                     do {
                         let observation = try await client.pullRequestList(queue: queue, repo: repo, now: clock.now())
                         if lastError != nil { print("[perch] pr poll \(key): recovered"); lastError = nil }

@@ -9,6 +9,13 @@ import PerchModuleKit
 
 private func series(_ v: Int) -> VitalSeries { VitalSeries(current: v, history: [v]) }
 
+@Test func refreshSecondsHelperParsesAndClamps() {
+    #expect(ModuleContext(settings: [:]).refreshSeconds(fallback: 60) == 60)      // unset → fallback
+    #expect(ModuleContext(settings: ["refreshSeconds": "30"]).refreshSeconds(fallback: 60) == 30)
+    #expect(ModuleContext(settings: ["refreshSeconds": "1"]).refreshSeconds(fallback: 60, minimum: 15) == 15) // clamped
+    #expect(ModuleContext(settings: ["refreshSeconds": "junk"]).refreshSeconds(fallback: 60) == 60) // bad → fallback
+}
+
 @Test func vitalsTintCrossesThresholds() {
     let m = VitalsModule()
     #expect(m.face(for: series(10), in: .rightPill).tint == .good)

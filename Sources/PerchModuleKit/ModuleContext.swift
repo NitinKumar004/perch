@@ -17,4 +17,11 @@ public struct ModuleContext: Sendable {
         self.clock = clock
         self.settings = settings
     }
+
+    /// The user-configured refresh interval in seconds, or `fallback` if unset,
+    /// clamped to at least `minimum` so a typo can't hammer a source.
+    public func refreshSeconds(fallback: Double, minimum: Double = 5) -> Double {
+        guard let raw = settings["refreshSeconds"], let value = Double(raw) else { return fallback }
+        return Swift.max(minimum, value)
+    }
 }

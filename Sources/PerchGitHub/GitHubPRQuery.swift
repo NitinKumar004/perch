@@ -11,18 +11,28 @@ public struct PRCountObservation: Sendable, Equatable {
     }
 }
 
-/// A single pull request in a queue, with enough to show + open it.
+/// A single pull request in a queue, with enough to show + open it, plus its
+/// review + merge status when fetched via GraphQL.
 public struct PRSummary: Sendable, Equatable {
     public let number: Int
     public let title: String
     public let repo: String   // "owner/name"
     public let url: String
+    /// GitHub `reviewDecision`: APPROVED / CHANGES_REQUESTED / REVIEW_REQUIRED / nil.
+    public let reviewDecision: String?
+    /// GitHub `mergeable`: MERGEABLE / CONFLICTING / UNKNOWN / nil.
+    public let mergeable: String?
+    public let isDraft: Bool
 
-    public init(number: Int, title: String, repo: String, url: String) {
+    public init(number: Int, title: String, repo: String, url: String,
+                reviewDecision: String? = nil, mergeable: String? = nil, isDraft: Bool = false) {
         self.number = number
         self.title = title
         self.repo = repo
         self.url = url
+        self.reviewDecision = reviewDecision
+        self.mergeable = mergeable
+        self.isDraft = isDraft
     }
 }
 
@@ -81,46 +91,39 @@ extension GitHubAPIClient {
         return PRCountObservation(count: decoded.totalCount, observedAt: now)
     }
 
-    /// The queue's total plus the first `limit` items (title + link), for the
-    /// panel's PR list.
+    /// The queue's total plus the first `limit` items with review + merge status,
+    /// via GraphQL (one request), for the panel's PR list.
     public func pullRequestList(queue: PRQueue, repo: String?, limit: Int = 8, now: Date) async throws -> PRListObservation {
-        let token = try await validToken()
-
         var q = "is:pr is:open \(queue.rawValue):@me"
         if let repo { q += " repo:\(repo)" }
 
-        var components = URLComponents(
-            url: GitHubConfig.apiBaseURL.appendingPathComponent("search/issues"),
-            resolvingAgainstBaseURL: false
-        )
-        components?.queryItems = [
-            URLQueryItem(name: "q", value: q),
-            URLQueryItem(name: "per_page", value: String(limit)),
-            URLQueryItem(name: "sort", value: "updated"),
-        ]
-        guard let url = components?.url else { throw GitHubAuthError.decoding }
-
-        let request = HTTPRequest(
-            url: url, method: "GET",
-            headers: [
-                "Authorization": "Bearer \(token)",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "User-Agent": "Perch",
-            ]
-        )
-        let response = try await transport.send(request)
-        guard (200..<300).contains(response.status) else { throw GitHubAuthError.http(status: response.status) }
-        guard let decoded = try? JSONDecoder().decode(SearchResult.self, from: response.body) else {
+        let gql = """
+        query($q: String!, $n: Int!) {
+          search(query: $q, type: ISSUE, first: $n) {
+            issueCount
+            nodes {
+              ... on PullRequest {
+                number title url isDraft reviewDecision mergeable
+                repository { nameWithOwner }
+              }
+            }
+          }
+        }
+        """
+        let data = try await graphQL(gql, variables: ["q": q, "n": limit])
+        guard let decoded = try? JSONDecoder().decode(GQLSearch.self, from: data) else {
             throw GitHubAuthError.decoding
         }
-
-        let items = decoded.items.map { item -> PRSummary in
-            // repository_url looks like https://api.github.com/repos/owner/name
-            let repoName = item.repositoryUrl.components(separatedBy: "/repos/").last ?? ""
-            return PRSummary(number: item.number, title: item.title, repo: repoName, url: item.htmlUrl)
+        let items = decoded.search.nodes.compactMap { node -> PRSummary? in
+            guard let number = node.number, let title = node.title, let url = node.url else { return nil }
+            return PRSummary(number: number, title: title,
+                             repo: node.repository?.nameWithOwner ?? "",
+                             url: url,
+                             reviewDecision: node.reviewDecision,
+                             mergeable: node.mergeable,
+                             isDraft: node.isDraft ?? false)
         }
-        return PRListObservation(total: decoded.totalCount, items: items, observedAt: now)
+        return PRListObservation(total: decoded.search.issueCount, items: items, observedAt: now)
     }
 }
 
@@ -129,20 +132,21 @@ private struct SearchCount: Decodable {
     enum CodingKeys: String, CodingKey { case totalCount = "total_count" }
 }
 
-private struct SearchResult: Decodable {
-    let totalCount: Int
-    let items: [Item]
-    enum CodingKeys: String, CodingKey { case totalCount = "total_count", items }
-
-    struct Item: Decodable {
-        let number: Int
-        let title: String
-        let htmlUrl: String
-        let repositoryUrl: String
-        enum CodingKeys: String, CodingKey {
-            case number, title
-            case htmlUrl = "html_url"
-            case repositoryUrl = "repository_url"
-        }
+// GraphQL response shapes (nodes are heterogeneous, so every field is optional).
+private struct GQLSearch: Decodable {
+    let search: Inner
+    struct Inner: Decodable {
+        let issueCount: Int
+        let nodes: [Node]
+    }
+    struct Node: Decodable {
+        let number: Int?
+        let title: String?
+        let url: String?
+        let isDraft: Bool?
+        let reviewDecision: String?
+        let mergeable: String?
+        let repository: Repo?
+        struct Repo: Decodable { let nameWithOwner: String }
     }
 }

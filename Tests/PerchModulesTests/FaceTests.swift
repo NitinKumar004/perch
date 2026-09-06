@@ -59,7 +59,19 @@ private func series(_ v: Int) -> VitalSeries { VitalSeries(current: v, history: 
     #expect(rows.count == 2)
     #expect(rows[0].title == "#2533 ClickHouse billing")
     #expect(rows[0].url == "https://github.com/zopdev/zopnight/pull/2533")
-    #expect(rows[0].subtitle == "zopdev/zopnight")
+    #expect(rows[0].subtitle?.hasPrefix("zopdev/zopnight") == true)
+}
+
+@Test func prStatusBadgeMapping() {
+    func pr(_ review: String?, mergeable: String? = nil, draft: Bool = false) -> PRSummary {
+        PRSummary(number: 1, title: "t", repo: "o/r", url: "u",
+                  reviewDecision: review, mergeable: mergeable, isDraft: draft)
+    }
+    #expect(GitHubPRsModule.status(for: pr("APPROVED")).tint == .good)
+    #expect(GitHubPRsModule.status(for: pr("CHANGES_REQUESTED")).tint == .critical)
+    #expect(GitHubPRsModule.status(for: pr("REVIEW_REQUIRED")).tint == .warning)
+    #expect(GitHubPRsModule.status(for: pr(nil, mergeable: "CONFLICTING")).label == "conflicts")
+    #expect(GitHubPRsModule.status(for: pr("APPROVED", draft: true)).label == "draft")
 }
 
 @Test func buildFaceColors() {

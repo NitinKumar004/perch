@@ -42,6 +42,37 @@ public struct GitHubAPIClient: Sendable {
     /// query files in this module.
     func validToken() async throws -> String { try await auth.validAccessToken() }
 
+    /// Run a GraphQL query and return the raw `data` object's bytes. Throws
+    /// `.http` on a non-2xx and `.decoding` if the response carries GraphQL
+    /// errors instead of data.
+    func graphQL(_ query: String, variables: [String: Any]) async throws -> Data {
+        let token = try await validToken()
+        let payload: [String: Any] = ["query": query, "variables": variables]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+
+        let request = HTTPRequest(
+            url: GitHubConfig.apiBaseURL.appendingPathComponent("graphql"),
+            method: "POST",
+            headers: [
+                "Authorization": "Bearer \(token)",
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "Perch",
+                "Content-Type": "application/json",
+            ],
+            body: body
+        )
+        let response = try await http.send(request)
+        guard (200..<300).contains(response.status) else {
+            throw GitHubAuthError.http(status: response.status)
+        }
+        guard let root = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any] else {
+            throw GitHubAuthError.decoding
+        }
+        if root["errors"] != nil, root["data"] == nil { throw GitHubAuthError.decoding }
+        guard let data = root["data"] else { throw GitHubAuthError.decoding }
+        return try JSONSerialization.data(withJSONObject: data)
+    }
+
     /// The latest Actions run for `branch`, or `nil` if the repo has none.
     public func latestBuild(owner: String, repo: String, branch: String) async throws -> BuildObservation? {
         let token = try await auth.validAccessToken()

@@ -138,13 +138,26 @@ public struct GitHubPRsModule: NotchModule {
             return value.count == 0 ? [] : [DetailRow(id: "pr-empty", title: "\(value.count) waiting", tint: .warning)]
         }
         return value.items.map { pr in
-            DetailRow(
+            let status = Self.status(for: pr)
+            return DetailRow(
                 id: "pr-\(pr.repo)-\(pr.number)",
                 title: "#\(pr.number) \(pr.title)",
-                subtitle: pr.repo,
-                tint: .info,
-                symbolName: "arrow.triangle.pull",
+                subtitle: "\(pr.repo) · \(status.label)",
+                tint: status.tint,
+                symbolName: status.symbol,
                 url: pr.url)
+        }
+    }
+
+    /// Map a PR's review + merge status to a label, tint, and icon.
+    static func status(for pr: PRSummary) -> (label: String, tint: Tint, symbol: String) {
+        if pr.isDraft { return ("draft", .neutral, "pencil.circle") }
+        if pr.mergeable == "CONFLICTING" { return ("conflicts", .critical, "exclamationmark.triangle.fill") }
+        switch pr.reviewDecision {
+        case "APPROVED":          return ("approved", .good, "checkmark.circle.fill")
+        case "CHANGES_REQUESTED": return ("changes requested", .critical, "xmark.circle.fill")
+        case "REVIEW_REQUIRED":   return ("review required", .warning, "clock.fill")
+        default:                  return ("open", .info, "arrow.triangle.pull")
         }
     }
 }

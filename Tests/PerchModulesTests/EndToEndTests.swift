@@ -201,6 +201,7 @@ private func firstRender(_ module: AnyNotchModule,
     #expect(row?.action == "clip.copy:hello e2e")   // action carries the text, not an index
 }
 
+
 @Test func e2e_fileShelfStreamShowsDroppedFile() async {
     let controller = FileShelfController()
     await controller.add(path: "/Users/me/report.pdf")

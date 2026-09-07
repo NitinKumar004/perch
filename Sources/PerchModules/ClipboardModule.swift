@@ -45,18 +45,29 @@ public struct ClipboardModule: NotchModule {
         return AsyncStream { continuation in
             let task = Task {
                 var lastChangeCount = Self.currentChangeCount()
+                var lastEmitted: [String] = []
                 // Seed with whatever's already on the pasteboard.
                 if let text = Self.currentString() { await controller.record(text) }
-                continuation.yield(Snapshot(value: ClipboardHistory(entries: await controller.snapshot()),
+                lastEmitted = await controller.snapshot()
+                continuation.yield(Snapshot(value: ClipboardHistory(entries: lastEmitted),
                                             freshness: .live, asOf: clock.now()))
 
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(interval))
+                    // Pick up a new copy from the system pasteboard…
                     let change = Self.currentChangeCount()
                     if change != lastChangeCount {
                         lastChangeCount = change
                         if let text = Self.currentString() { await controller.record(text) }
-                        continuation.yield(Snapshot(value: ClipboardHistory(entries: await controller.snapshot()),
+                    }
+                    // …and re-emit whenever the on-device history changes for ANY
+                    // reason — new copy, an entry re-copied, or "Clear history"
+                    // (which mutates the controller but doesn't touch the pasteboard,
+                    // so it needs this snapshot compare to refresh the panel).
+                    let now = await controller.snapshot()
+                    if now != lastEmitted {
+                        lastEmitted = now
+                        continuation.yield(Snapshot(value: ClipboardHistory(entries: now),
                                                     freshness: .live, asOf: clock.now()))
                     }
                 }

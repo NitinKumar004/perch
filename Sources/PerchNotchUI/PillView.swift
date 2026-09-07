@@ -10,6 +10,7 @@ import PerchModuleKit
 /// ago it was confirmed, so a stale value can never masquerade as live.
 public struct PillView: View {
     private let content: PillContent
+    @State private var isHovering = false
 
     public init(_ content: PillContent) {
         self.content = content
@@ -37,12 +38,26 @@ public struct PillView: View {
                        // compress it (kept only on the container, not the children)
         .foregroundStyle(tintColor)
         .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(Capsule().fill(Color.black.opacity(0.55)))
-        .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
+        .frame(height: Self.pillHeight)   // matched height on both items
+        // No box: like the native menu-bar items ("Help", the system SF Symbols),
+        // this is just an icon + colored text sitting directly on the bar, so it
+        // matches whatever tint macOS gives the menu bar — never a clashing panel.
+        // A whisper-faint fill only appears on hover, the way native items do.
+        .background(
+            RoundedRectangle(cornerRadius: Self.pillRadius, style: .continuous)
+                .fill(Color.white.opacity(isHovering ? 0.14 : 0))
+        )
+        .contentShape(RoundedRectangle(cornerRadius: Self.pillRadius, style: .continuous))
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.15)) { isHovering = hovering }
+        }
         .opacity(isDimmed ? 0.5 : 1)
         .help(content.face.tooltip ?? "")
     }
+
+    /// Sizing tuned to sit flush in the menu bar like a native item.
+    static let pillHeight: CGFloat = 22
+    static var pillRadius: CGFloat { 6 }
 
     private var tintColor: Color {
         switch content.face.tint {

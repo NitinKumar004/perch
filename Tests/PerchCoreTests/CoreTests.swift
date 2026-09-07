@@ -53,3 +53,13 @@ import Foundation
     #expect(ByteFormat.rate(1536) == "1.5 KB/s")
     #expect(ByteFormat.rate(-10) == "0 B/s")   // never negative
 }
+
+@Test func storageUsesDecimalToMatchFinder() {
+    // A "512 GB" SSD is 512e9 bytes → Finder shows ~512 GB (decimal), not 477 GiB.
+    #expect(ByteFormat.storage(512_000_000_000) == "512 GB")
+    #expect(ByteFormat.storage(1_000_000_000) == "1.0 GB")    // 1000-based scaling
+    #expect(ByteFormat.storage(999_000_000) == "999 MB")
+    #expect(ByteFormat.storage(0) == "0 B")
+    // Memory-style size stays binary (1024) — different, intentionally.
+    #expect(ByteFormat.size(512 * 1024) == "512 KB")
+}

@@ -99,7 +99,7 @@ private func firstRender(_ module: AnyNotchModule,
                 SlotBinding(module: "system.port", settings: ["port": "8080", "label": "api"]),
             ])],
         hudPosition: "right")
-    config.global = GlobalSettings(autoOpenOnRed: true, quietHours: "22:00-08:00", theme: "midnight")
+    config.global = GlobalSettings(autoOpenOnRed: true, quietHours: "22:00-08:00", theme: "midnight", notchBanner: false)
     try store.save(config)
 
     // Reload from disk → every configured value survives exactly.
@@ -107,6 +107,7 @@ private func firstRender(_ module: AnyNotchModule,
     #expect(reloaded == config)
     #expect(reloaded.global.autoOpenOnRed)
     #expect(reloaded.global.theme == "midnight")   // chosen theme persists
+    #expect(reloaded.global.notchBanner == false)  // notch-banner preference persists
     #expect(reloaded.current?.rightPill?.settings["format"] == "12")
     #expect(reloaded.current?.panel.first?.settings["limit"] == "3")
     #expect(reloaded.hudPosition == "right")
@@ -172,7 +173,9 @@ private func firstRender(_ module: AnyNotchModule,
 @Test func e2e_systemSafetyModulesProduceLiveValues() async {
     // These read the real OS, so we assert they reach .live with a sane face.
     let thermal = await firstRender(AnyNotchModule(ThermalModule()), settings: ["refreshSeconds": "1"]) { $0.pill.freshness == .live }
-    #expect(["Cool", "Warm", "Hot", "Critical"].contains(thermal?.pill.face.text ?? ""))
+    // The thermal pill is a bar (no jargon word): empty text + a 0…1 progress level.
+    #expect(thermal?.pill.face.text == "")
+    #expect((thermal?.pill.face.progress ?? -1) > 0)
 
     let load = await firstRender(AnyNotchModule(LoadModule()), settings: ["refreshSeconds": "1"]) { $0.pill.freshness == .live }
     #expect(load?.pill.face.text.contains("Load") == true)

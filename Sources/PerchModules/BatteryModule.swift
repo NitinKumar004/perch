@@ -27,11 +27,20 @@ public struct BatteryModule: NotchModule {
         guard value.hasBattery else {
             return PillFace(text: "AC", symbolName: "powerplug", tint: .neutral, tooltip: "No battery (on AC)")
         }
-        let tint: Tint = value.isCharging ? .good
+        let tint: Tint = (value.isCharging || value.isPluggedIn) ? .good
             : (value.percent <= 10 ? .critical : (value.percent <= 20 ? .warning : .good))
-        let symbol = value.isCharging ? "battery.100.bolt" : batterySymbol(value.percent)
-        return PillFace(text: "\(value.percent)%", symbolName: symbol, tint: tint,
-                        tooltip: value.isCharging ? "Charging · \(value.percent)%" : "Battery \(value.percent)%")
+        // Bolt only when actually gaining charge; a plug when on AC but not
+        // charging (full / held at 80%); a battery glyph on battery power.
+        let symbol: String
+        let tooltip: String
+        if value.isCharging {
+            symbol = "battery.100.bolt"; tooltip = "Charging · \(value.percent)%"
+        } else if value.isPluggedIn {
+            symbol = "powerplug"; tooltip = "Plugged in, not charging · \(value.percent)%"
+        } else {
+            symbol = batterySymbol(value.percent); tooltip = "On battery · \(value.percent)%"
+        }
+        return PillFace(text: "\(value.percent)%", symbolName: symbol, tint: tint, tooltip: tooltip)
     }
 
     private func batterySymbol(_ percent: Int) -> String {

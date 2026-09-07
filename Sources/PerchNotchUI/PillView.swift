@@ -26,13 +26,23 @@ public struct PillView: View {
                     .frame(width: 13, height: 13)   // fixed icon box; the glyph is
                     .clipped()                       // centred and can't spill onto
             }                                        // the text (no .fixedSize here)
-            pillText
-                // The flank layout animates leftPill/rightPill changes (a nice
-                // fade when a pill appears or its tint shifts). But a metric's
-                // *text* changes every tick — network throughput especially — and
-                // an animated text swap crossfades old over new, so the two
-                // strings overlap for the fade's duration. Swap text instantly.
-                .contentTransition(.identity)
+            // Render the text/segments block whenever there's text OR segments —
+            // a combined pill whose members are ALL bar-only has empty fallback
+            // text but non-empty segments, and must still draw its bars (not go
+            // blank). A single bar-only pill (no segments) renders via `progress`.
+            if !content.face.text.isEmpty || !(content.face.segments ?? []).isEmpty {
+                pillText
+                    // The flank layout animates leftPill/rightPill changes (a nice
+                    // fade when a pill appears or its tint shifts). But a metric's
+                    // *text* changes every tick — network throughput especially —
+                    // and an animated text swap crossfades old over new, so the
+                    // two strings overlap for the fade's duration. Swap instantly.
+                    .contentTransition(.identity)
+            }
+            if let progress = content.face.progress {
+                MiniBar(value: progress, color: tintColor)
+                    .frame(width: 26, height: 5)   // glanceable level gauge, no jargon word
+            }
             if let badge = content.face.badge {
                 Circle()
                     .fill(palette.color(for: badge))
@@ -79,7 +89,12 @@ public struct PillView: View {
             HStack(spacing: 5) {
                 ForEach(Array(segments.enumerated()), id: \.offset) { i, seg in
                     if i > 0 { Text("·").foregroundStyle(palette.ink(0.3)) }
-                    Text(seg.text).foregroundStyle(palette.color(for: seg.tint))
+                    if let progress = seg.progress {
+                        MiniBar(value: progress, color: palette.color(for: seg.tint))
+                            .frame(width: 22, height: 5)   // a member shown as a gauge
+                    } else {
+                        Text(seg.text).foregroundStyle(palette.color(for: seg.tint))
+                    }
                 }
             }
             .font(.system(size: 11, weight: .medium, design: .monospaced))

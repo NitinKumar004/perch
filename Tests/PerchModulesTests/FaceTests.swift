@@ -217,3 +217,82 @@ private struct NoopStore: TokenStore {
     func save(_ token: GitHubToken) throws {}
     func clear() throws {}
 }
+
+// MARK: - GitHub Notifications
+
+@Test func notificationsFaceReflectsUnreadCount() {
+    let m = GitHubNotificationsModule(client: .init(auth: .init(
+        flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore())))
+    let zero = m.face(for: .empty, in: .rightPill)
+    #expect(zero.text == "0")
+    #expect(zero.tint == .neutral)
+    #expect(zero.symbolName == "bell")
+    func n(_ id: String, _ reason: String = "mention") -> NotificationThread {
+        NotificationThread(id: id, reason: reason, title: "t", repo: "o/r",
+                           subjectType: "Issue", apiURL: nil, updatedAt: Date())
+    }
+    let some = m.face(for: NotificationState(items: [n("1"), n("2"), n("3")]), in: .rightPill)
+    #expect(some.text == "3")
+    #expect(some.tint == .warning)
+    #expect(some.symbolName == "bell.badge")
+    // >50 unread (truncated) reads as "N+", never a silently-capped exact count.
+    let many = m.face(for: NotificationState(items: [n("1")], truncated: true), in: .rightPill)
+    #expect(many.text == "1+")
+    #expect(many.tooltip?.contains("1+ unread") == true)
+}
+
+@Test func notificationsReasonMapping() {
+    #expect(GitHubNotificationsModule.friendlyReason("review_requested") == "review requested")
+    #expect(GitHubNotificationsModule.friendlyReason("ci_activity") == "CI activity")
+    #expect(GitHubNotificationsModule.friendlyReason("team_mention") == "mentioned you")
+    #expect(GitHubNotificationsModule.friendlyReason("weird_reason") == "weird reason")  // underscores humanised
+    #expect(GitHubNotificationsModule.tint(for: "security_alert") == .critical)
+    #expect(GitHubNotificationsModule.tint(for: "review_requested") == .warning)
+    #expect(GitHubNotificationsModule.tint(for: "ci_activity") == .info)
+    #expect(GitHubNotificationsModule.symbol(for: "mention") == "at")
+}
+
+@Test func notificationsAlertOnlyOnNewThread() {
+    let m = GitHubNotificationsModule(client: .init(auth: .init(
+        flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore())))
+    func n(_ id: String) -> NotificationThread {
+        NotificationThread(id: id, reason: "mention", title: "hi", repo: "o/r",
+                           subjectType: "Issue", apiURL: nil, updatedAt: Date())
+    }
+    let prev = NotificationState(items: [n("1")])   // a real prior fetch
+    // A brand-new thread id → alert; no new id → no alert; no prior → no alert.
+    // (The cold-start "don't alert for pre-existing unread on launch" baseline is
+    // enforced universally by AnyNotchModule — see AnyNotchModuleTests.)
+    #expect(m.notification(for: NotificationState(items: [n("2"), n("1")]), previous: prev) != nil)
+    #expect(m.notification(for: NotificationState(items: [n("1")]), previous: prev) == nil)
+    #expect(m.notification(for: NotificationState(items: [n("1")]), previous: nil) == nil)
+}
+
+// MARK: - Data-accuracy fixes (network scope, battery state)
+
+@Test func networkCountsOnlyPhysicalInterfaces() {
+    #expect(NetworkReader.countsTowardThroughput("en0"))        // Wi-Fi/Ethernet
+    #expect(NetworkReader.countsTowardThroughput("pdp_ip0"))    // cellular
+    // Virtual/link-local must NOT count (they double-count or add chatter).
+    #expect(!NetworkReader.countsTowardThroughput("lo0"))       // loopback
+    #expect(!NetworkReader.countsTowardThroughput("utun3"))     // VPN tunnel
+    #expect(!NetworkReader.countsTowardThroughput("awdl0"))     // AirDrop
+    #expect(!NetworkReader.countsTowardThroughput("llw0"))      // Handoff
+    #expect(!NetworkReader.countsTowardThroughput("bridge0"))   // sharing/Docker
+    #expect(!NetworkReader.countsTowardThroughput("ap1"))       // hotspot
+}
+
+@Test func batteryFaceDistinguishesChargingVsPluggedVsBattery() {
+    let m = BatteryModule()
+    // Actually charging → bolt.
+    let charging = m.face(for: BatterySample(percent: 60, isCharging: true, isPluggedIn: true, hasBattery: true), in: .rightPill)
+    #expect(charging.symbolName == "battery.100.bolt")
+    #expect(charging.tooltip?.contains("Charging") == true)
+    // On AC but NOT charging (full / held at 80%) → plug, honest tooltip (was wrongly "Charging").
+    let plugged = m.face(for: BatterySample(percent: 100, isCharging: false, isPluggedIn: true, hasBattery: true), in: .rightPill)
+    #expect(plugged.symbolName == "powerplug")
+    #expect(plugged.tooltip?.contains("not charging") == true)
+    // On battery → battery glyph.
+    let onBattery = m.face(for: BatterySample(percent: 55, isCharging: false, isPluggedIn: false, hasBattery: true), in: .rightPill)
+    #expect(onBattery.tooltip?.contains("On battery") == true)
+}

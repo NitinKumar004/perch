@@ -60,7 +60,7 @@ public struct DiskModule: NotchModule {
     public func detail(for value: DiskSample) -> [DetailRow] {
         let f = Self.face(for: value)
         return [DetailRow(id: "disk", title: "Disk free",
-                          subtitle: "\(ByteFormat.size(UInt64(max(0, value.freeBytes)))) free · \(value.usedPercent)% used",
+                          subtitle: "\(ByteFormat.storage(UInt64(max(0, value.freeBytes)))) free · \(value.usedPercent)% used",
                           tint: f.tint, symbolName: "externaldrive")]
     }
 
@@ -68,11 +68,11 @@ public struct DiskModule: NotchModule {
         guard value.usedPercent >= 90, let previous, previous.usedPercent < 90 else { return nil }
         // Distinct id per rising edge so refilling the disk later re-warns.
         return ModuleAlert(id: "disk-low-\(AlertEpisode.token())", title: "Disk almost full",
-                           body: "\(ByteFormat.size(UInt64(max(0, value.freeBytes)))) free — free space to avoid slowdowns.")
+                           body: "\(ByteFormat.storage(UInt64(max(0, value.freeBytes)))) free — free space to avoid slowdowns.")
     }
 
     static func face(for sample: DiskSample) -> PillFace {
-        let free = ByteFormat.size(UInt64(max(0, sample.freeBytes)))
+        let free = ByteFormat.storage(UInt64(max(0, sample.freeBytes)))
         return PillFace(text: "Disk \(free)", symbolName: "externaldrive",
                         tint: tint(sample.usedPercent),
                         tooltip: "\(free) free · \(sample.usedPercent)% used")

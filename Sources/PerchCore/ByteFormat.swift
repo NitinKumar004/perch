@@ -12,12 +12,25 @@ public enum ByteFormat {
         return (v, i, units[i])
     }
 
-    /// A size like "48.1 GB". Whole number for bytes/KB and for large values,
-    /// one decimal in between.
+    /// A size like "48.1 GB", scaled by 1024 — the right convention for MEMORY
+    /// quantities (RAM, swap), which are inherently binary. Whole number for
+    /// bytes/KB and for large values, one decimal in between.
     public static func size(_ bytes: UInt64) -> String {
         let (v, i, unit) = scaled(Double(bytes), units: ["B", "KB", "MB", "GB", "TB"])
         let text = (v >= 100 || i <= 1) ? String(format: "%.0f", v) : String(format: "%.1f", v)
         return "\(text) \(unit)"
+    }
+
+    /// A STORAGE size like "512 GB", scaled by 1000 — the decimal convention
+    /// Finder / Disk Utility / About This Mac use for disks, so Perch's free-space
+    /// number matches what the user sees there (1024-scaling would read ~7% low).
+    public static func storage(_ bytes: UInt64) -> String {
+        var v = Swift.max(0, Double(bytes))
+        let units = ["B", "KB", "MB", "GB", "TB"]
+        var i = 0
+        while v >= 1000 && i < units.count - 1 { v /= 1000; i += 1 }
+        let text = (v >= 100 || i <= 1) ? String(format: "%.0f", v) : String(format: "%.1f", v)
+        return "\(text) \(units[i])"
     }
 
     /// A throughput like "1.2 MB/s". Whole number only for bytes/s and large

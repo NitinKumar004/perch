@@ -94,6 +94,24 @@ import PerchModuleKit
     #expect(face.segments?.map(\.tint) == [.good, .warning])
     #expect(face.segments?.map(\.text) == ["CPU 27%", "RAM 61%"])
     #expect(CombinedModule.mergedFace([]).text == "—")
+
+    // A bar-only member (empty text + progress, e.g. thermal pressure) stays
+    // visible in the combined pill as a BAR segment, not dropped.
+    func barRender(_ p: Double, _ tint: Tint) -> ModuleRender {
+        ModuleRender(pill: PillContent(face: PillFace(text: "", tint: tint, progress: p), freshness: .live, asOf: Date()), detail: [])
+    }
+    let withBar = CombinedModule.mergedFace([render("CPU 27%", .good), barRender(0.75, .warning)])
+    #expect(withBar.segments?.count == 2)            // both members present
+    #expect(withBar.segments?[1].progress == 0.75)   // thermal → a bar segment
+    #expect(withBar.text == "CPU 27%")               // fallback text skips the empty one
+    #expect(withBar.tint == .warning)                // thermal's colour still counts
+
+    // ALL members bar-only (e.g. only thermal enabled): the fallback text is
+    // empty, but the segments must still carry the bar so the pill isn't blank.
+    let allBars = CombinedModule.mergedFace([barRender(0.25, .good)])
+    #expect(allBars.text == "")                      // no text to show
+    #expect(allBars.segments?.count == 1)            // …but a bar segment remains
+    #expect(allBars.segments?.first?.progress == 0.25)
 }
 
 // MARK: - System safety modules (thermal / swap / load / disk)
@@ -114,6 +132,31 @@ import PerchModuleKit
     // Each rising-edge episode carries a distinct id, so a later overheating
     // isn't silently deduped by the notifier's permanent id memory.
     #expect(m.notification(for: .hot, previous: .warm)?.id.hasPrefix("thermal-hot-") == true)
+}
+
+@Test func thermalLabelsAreHonestThrottlePressureNotTemperature() {
+    // Nominal (not "Cool") — we only know throttle pressure, not temperature.
+    #expect(ThermalModule.label(.cool) == "Nominal")
+    #expect(ThermalModule.label(.warm) == "Fair")
+    #expect(ThermalModule.label(.hot) == "Serious")
+    #expect(ThermalModule.label(.critical) == "Critical")
+    // No temperature words leak into the pill text.
+    for level: ThermalLevel in [.cool, .warm, .hot, .critical] {
+        let text = ThermalModule.label(level)
+        #expect(!["Cool", "Warm", "Hot"].contains(text))
+    }
+    // The tooltip is explicit that this isn't a temperature.
+    #expect(ThermalModule.tooltip(.cool).contains("not a temperature"))
+    // The pill is a bar, not a word: empty text + a rising fill (more pressure
+    // = more fill), so a user reads it at a glance without knowing "Nominal".
+    #expect(ThermalModule().face(for: .cool, in: .rightPill).text == "")
+    // .cool reads near-empty (the everyday "fine" baseline); fill rises monotonically.
+    #expect(ThermalModule.fraction(.cool) < 0.2)
+    #expect(ThermalModule.fraction(.cool) < ThermalModule.fraction(.warm))
+    #expect(ThermalModule.fraction(.warm) < ThermalModule.fraction(.hot))
+    #expect(ThermalModule.fraction(.hot) == 0.75)
+    #expect(ThermalModule.fraction(.critical) == 1.0)
+    #expect(ThermalModule().face(for: .critical, in: .rightPill).progress == 1.0)
 }
 
 @Test func swapThresholdsAndHumanFormat() {
@@ -331,7 +374,7 @@ private struct NoopStore: TokenStore {
 
 @Test func catalogEntryPickerLabelFormatsNameAndTag() {
     let thermal = ModuleCatalog.entry(id: "system.thermal")!
-    #expect(thermal.pickerLabel == "Thermal  ·  heat warning")
+    #expect(thermal.pickerLabel == "Thermal pressure  ·  throttle pressure")
     // Every pickable module carries a non-empty tag (none fall back to bare name).
     for entry in ModuleCatalog.all() {
         #expect(!entry.tag.isEmpty, "no picker tag for \(entry.id)")

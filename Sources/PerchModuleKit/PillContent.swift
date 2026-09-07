@@ -20,25 +20,37 @@ public struct PillFace: Equatable, Sendable {
     /// glanceable "you have something to act on" signal that avoids shouting a
     /// raw number (the exact figure belongs in the tooltip / panel). nil = none.
     public let badge: Tint?
+    /// An optional 0…1 level rendered as a small filled bar in the pill — a
+    /// glanceable gauge (e.g. thermal pressure) that reads without a jargon word:
+    /// nearly-empty = fine, full = maxed. Shown in the pill's `tint`. nil = none.
+    public let progress: Double?
 
     public init(text: String, symbolName: String? = nil, tint: Tint = .neutral,
-                tooltip: String? = nil, segments: [FaceSegment]? = nil, badge: Tint? = nil) {
+                tooltip: String? = nil, segments: [FaceSegment]? = nil,
+                badge: Tint? = nil, progress: Double? = nil) {
         self.text = text
         self.symbolName = symbolName
         self.tint = tint
         self.tooltip = tooltip
         self.segments = segments
         self.badge = badge
+        self.progress = progress
     }
 }
 
-/// One coloured piece of a multi-part pill face.
+/// One coloured piece of a multi-part pill face. Usually text; a member that
+/// renders as a bar rather than a word (e.g. thermal pressure) carries a
+/// `progress` (0…1) instead, so a combined pill can show its little gauge inline.
 public struct FaceSegment: Equatable, Sendable {
     public let text: String
     public let tint: Tint
-    public init(text: String, tint: Tint) {
+    /// If set, this segment renders as a small bar (0…1) instead of text — for a
+    /// member like thermal pressure that reads better as a gauge than a word.
+    public let progress: Double?
+    public init(text: String, tint: Tint, progress: Double? = nil) {
         self.text = text
         self.tint = tint
+        self.progress = progress
     }
 }
 

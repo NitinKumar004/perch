@@ -106,8 +106,15 @@ public struct CombinedModule: NotchModule {
             return PillFace(text: "—", symbolName: "square.stack.3d.up", tint: .neutral,
                             tooltip: "No metrics selected")
         }
-        let segments = renders.map { FaceSegment(text: $0.pill.face.text, tint: $0.pill.face.tint) }
-        let text = renders.map { $0.pill.face.text }.joined(separator: " · ")
+        // Each member becomes a segment: text for a normal metric, or a small
+        // BAR for a bar-only member (e.g. thermal pressure) — so a combined pill
+        // like "CPU 27% · RAM 61% · ▓▓░" keeps every member visible.
+        let segments = renders.map { r in
+            FaceSegment(text: r.pill.face.text, tint: r.pill.face.tint, progress: r.pill.face.progress)
+        }
+        // The fallback single-colour text uses only the labelled members.
+        let text = renders.compactMap { $0.pill.face.text.isEmpty ? nil : $0.pill.face.text }
+            .joined(separator: " · ")
         let tint = worstTint(renders.map { $0.pill.face.tint })
         // If any member wants attention, surface one dot in the worst member tint.
         let badges = renders.compactMap { $0.pill.face.badge }

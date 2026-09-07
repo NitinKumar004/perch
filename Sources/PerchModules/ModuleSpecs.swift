@@ -98,6 +98,11 @@ public enum ModuleSpecs {
                 refreshSetting("90"),
              ]) { _, deps in AnyNotchModule(MultiBuildsModule(client: deps.apiClient)) },
 
+        spec(GitHubNotificationsModule.self, category: .github, tag: "unread bell",
+             settings: [refreshSetting("60")]) { _, deps in
+            AnyNotchModule(GitHubNotificationsModule(client: deps.apiClient))
+        },
+
         spec(DeployModule.self, category: .web, tag: "URL up / down",
              settings: [
                 ModuleSetting(key: "url", label: "Health URL", placeholder: "https://example.com/health"),
@@ -124,7 +129,7 @@ public enum ModuleSpecs {
         spec(NetworkModule.self, category: .local, tag: "up / down",
              settings: [refreshSetting("2")]) { _, _ in AnyNotchModule(NetworkModule()) },
 
-        spec(ThermalModule.self, category: .local, tag: "heat warning",
+        spec(ThermalModule.self, category: .local, tag: "throttle pressure",
              settings: [refreshSetting("5")]) { _, _ in AnyNotchModule(ThermalModule()) },
 
         spec(SwapModule.self, category: .local, tag: "thrash warning",

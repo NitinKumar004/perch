@@ -268,3 +268,52 @@ private func observation(_ fetch: GitHubAPIClient.BuildFetch) -> BuildObservatio
     let all = GitHubAPIClient.prQuery(queue: .reviewRequested, repos: [])
     #expect(all == "is:pr is:open review-requested:@me")
 }
+
+// MARK: - Notifications endpoint
+
+private func notifsJSON() -> String {
+    """
+    [
+      {"id":"111","reason":"review_requested","updated_at":"2026-09-05T09:00:00Z",
+       "subject":{"title":"Add rate limiter","url":"https://api.github.com/repos/acme/api/pulls/88","type":"PullRequest"},
+       "repository":{"full_name":"acme/api"}},
+      {"id":"222","reason":"mention","updated_at":"2026-09-05T08:00:00Z",
+       "subject":{"title":"","url":"https://api.github.com/repos/acme/web/issues/12","type":"Issue"},
+       "repository":{"full_name":"acme/web"}}
+    ]
+    """
+}
+
+private func notifs(_ fetch: GitHubAPIClient.NotificationsFetch) -> (items: [NotificationThread], truncated: Bool)? {
+    if case .ok(let items, _, let truncated) = fetch { return (items, truncated) }
+    return nil
+}
+
+@Test func notificationsDecodesThreadsAndMapsURLs() async throws {
+    let http = FakeHTTPClient([json(notifsJSON())])
+    let client = GitHubAPIClient(http: http, auth: connectedAuth())
+    let got = notifs(try await client.notifications(etag: nil))
+    #expect(got?.items.count == 2)
+    #expect(got?.items[0].reason == "review_requested")
+    #expect(got?.items[0].repo == "acme/api")
+    #expect(got?.items[0].htmlURL == "https://github.com/acme/api/pull/88")
+    #expect(got?.items[1].subjectType == "Issue")
+    #expect(got?.items[1].htmlURL == "https://github.com/acme/web/issues/12")
+    #expect(got?.truncated == false)   // no Link header → not truncated
+}
+
+@Test func notificationsFlagsTruncationFromLinkHeader() async throws {
+    let http = FakeHTTPClient([HTTPResponse(
+        status: 200, body: Data(notifsJSON().utf8),
+        headers: ["Link": "<https://api.github.com/notifications?page=2>; rel=\"next\""])])
+    let client = GitHubAPIClient(http: http, auth: connectedAuth())
+    #expect(notifs(try await client.notifications(etag: nil))?.truncated == true)
+}
+
+@Test func notifications304ReturnsNotModified() async throws {
+    let http = FakeHTTPClient([HTTPResponse(status: 304, body: Data())])
+    let client = GitHubAPIClient(http: http, auth: connectedAuth())
+    if case .notModified = try await client.notifications(etag: "etag") {} else {
+        Issue.record("expected .notModified")
+    }
+}

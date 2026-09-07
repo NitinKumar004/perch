@@ -13,4 +13,6 @@ public enum GitHubConfig {
     public static let deviceCodeURL = URL(string: "https://github.com/login/device/code")!
     public static let accessTokenURL = URL(string: "https://github.com/login/oauth/access_token")!
     public static let apiBaseURL = URL(string: "https://api.github.com")!
+    /// Where a human opens things — e.g. a notification's PR/issue page.
+    public static let htmlBaseURL = "https://github.com"
 }

@@ -22,6 +22,9 @@ public final class NotchViewModel {
     public var isPanelOpen = false
     /// Whether GitHub is connected — drives the panel's "Connect" button.
     public var isConnected = false
+    /// The self-update state — drives the panel footer's update button, so the
+    /// update flow is reachable even when the menu-bar bird is hidden.
+    public var updateStatus: UpdateAvailability = .idle
     /// Width of the physical notch gap, updated when displays change so the pills
     /// stay flush on either side (0 on non-notch Macs → pills sit together).
     public var notchWidth: CGFloat = 0

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import PerchConfig
+import PerchNotchUI
 
 /// Hosts the SwiftUI settings form in a normal, focusable window (unlike the
 /// notch panel, this one is meant to be clicked into). Kept as a single reused
@@ -19,6 +20,8 @@ final class SettingsWindowController {
         onUseToken: @escaping (String) -> Void = { _ in },
         onUseCLI: @escaping () -> Void = {},
         onDisconnect: @escaping () -> Void = {},
+        updateModel: NotchViewModel,
+        onCheckUpdate: @escaping () -> Void = {},
         onSave: @escaping (LayoutConfig) -> Void
     ) {
         if let window {
@@ -29,7 +32,8 @@ final class SettingsWindowController {
 
         let view = SettingsView(config: config, isConnected: isConnected,
                                 onConnect: onConnect, onUseToken: onUseToken,
-                                onUseCLI: onUseCLI, onDisconnect: onDisconnect) { [weak self] edited in
+                                onUseCLI: onUseCLI, onDisconnect: onDisconnect,
+                                updateModel: updateModel, onCheckUpdate: onCheckUpdate) { [weak self] edited in
             onSave(edited)
             self?.window?.close()
         }

@@ -103,15 +103,23 @@ struct PanelView: View {
                             }
                         }
                         Spacer(minLength: 12)
-                        PillView(item.content)
+                        PillView(headerPill(for: item))
                     }
                     .padding(.horizontal, 14)
                     .padding(.top, 9)
                     .padding(.bottom, item.detail.isEmpty ? 9 : 4)
 
-                    // Detail rows (clickable when they carry a URL).
+                    // Detail rows. A row that merely restates the header (a
+                    // single-metric module's own summary) collapses to just its
+                    // new payload — the graph, and a subtitle the pill doesn't
+                    // already say — so nothing is stated twice. Genuinely
+                    // informative rows (a meeting name, a PR, a list) render full.
                     ForEach(item.detail) { row in
-                        detailRow(row)
+                        if isRedundantSummary(row, item: item) {
+                            summaryStrip(row, pillText: item.content.face.text)
+                        } else {
+                            detailRow(row)
+                        }
                     }
                 }
                 Divider().overlay(.white.opacity(0.06))
@@ -122,6 +130,57 @@ struct PanelView: View {
                     .foregroundStyle(.white.opacity(0.4))
                     .padding(.vertical, 14)
             }
+        }
+    }
+
+    /// The header pill with any leading token that duplicates the section title
+    /// stripped (see `PanelDedup`). Combined pills (segmented) are left as-is.
+    private func headerPill(for item: PanelItem) -> PillContent {
+        let face = item.content.face
+        guard face.segments == nil else { return item.content }
+        let text = PanelDedup.headerPillText(title: item.title, pillText: face.text)
+        guard text != face.text else { return item.content }
+        let newFace = PillFace(text: text, symbolName: face.symbolName, tint: face.tint,
+                               tooltip: face.tooltip, segments: nil)
+        return PillContent(face: newFace, freshness: item.content.freshness, asOf: item.content.asOf)
+    }
+
+    /// A row is a redundant summary when it isn't interactive (no link, action or
+    /// remove button) and its title only restates the header.
+    private func isRedundantSummary(_ row: DetailRow, item: PanelItem) -> Bool {
+        guard row.url == nil, row.action == nil, row.secondaryAction == nil else { return false }
+        return PanelDedup.titleIsRedundant(rowTitle: row.title, headerTitle: item.title,
+                                           pillText: item.content.face.text)
+    }
+
+    /// What's left of a redundant summary row once its repeated title is dropped:
+    /// the graph and a subtitle the pill doesn't already show. Renders nothing
+    /// when there's no new information (the row vanishes entirely).
+    @ViewBuilder
+    private func summaryStrip(_ row: DetailRow, pillText: String) -> some View {
+        let subtitle = PanelDedup.novelSubtitle(row.subtitle, pillText: pillText)
+        let hasSparkline = (row.sparkline?.count ?? 0) > 1
+        let hasProgress = row.progress != nil
+        if subtitle != nil || hasSparkline || hasProgress {
+            HStack(spacing: 9) {
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                if let points = row.sparkline, points.count > 1 {
+                    Sparkline(points: points, color: tintColor(row.tint))
+                        .frame(width: 64, height: 18)
+                }
+                if let progress = row.progress {
+                    MiniBar(value: progress, color: tintColor(row.tint))
+                        .frame(width: 56, height: 5)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
         }
     }
 

@@ -1,6 +1,7 @@
 import SwiftUI
 import PerchConfig
 import PerchModules
+import PerchNotchUI
 
 /// A native settings window: choose which module sits in each slot — left pill,
 /// right pill, and the drop-down panel (a list) — and fill each one's settings.
@@ -31,6 +32,10 @@ struct SettingsView: View {
     private let onUseToken: (String) -> Void
     private let onUseCLI: () -> Void
     private let onDisconnect: () -> Void
+    /// Shared update state (observed) + the action that checks/installs. Lives in
+    /// the header so updates are reachable from Settings, not only the menu bar.
+    private let updateModel: NotchViewModel
+    private let onCheckUpdate: () -> Void
 
     private let catalog = ModuleCatalog.all()
 
@@ -41,6 +46,8 @@ struct SettingsView: View {
         onUseToken: @escaping (String) -> Void = { _ in },
         onUseCLI: @escaping () -> Void = {},
         onDisconnect: @escaping () -> Void = {},
+        updateModel: NotchViewModel = NotchViewModel(),
+        onCheckUpdate: @escaping () -> Void = {},
         onSave: @escaping (LayoutConfig) -> Void
     ) {
         self.onSave = onSave
@@ -49,6 +56,8 @@ struct SettingsView: View {
         self.onUseToken = onUseToken
         self.onUseCLI = onUseCLI
         self.onDisconnect = onDisconnect
+        self.updateModel = updateModel
+        self.onCheckUpdate = onCheckUpdate
         // Pick a valid active preset key (fall back to the first if the named one
         // is missing), so the editor always has something to show.
         let activeKey = config.presets[config.activePreset] != nil
@@ -105,13 +114,36 @@ struct SettingsView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("Perch Settings").font(.system(size: 16, weight: .semibold))
-            Text("Pick what each spot shows. Editing preset: \(activePreset)")
-                .font(.system(size: 12)).foregroundStyle(.secondary)
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Perch Settings").font(.system(size: 16, weight: .semibold))
+                Text("Pick what each spot shows. Editing preset: \(activePreset)")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 16)
+            updateButton
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
+    }
+
+    /// Top-right update control. Reads the shared update state so it reflects the
+    /// live flow — "Check for Updates" → "Update to 1.2.1" → "Downloading…" →
+    /// "Up to date" — and installs in place when one is found.
+    private var updateButton: some View {
+        let status = updateModel.updateStatus
+        return Button(action: onCheckUpdate) {
+            HStack(spacing: 6) {
+                Image(systemName: status.symbolName)
+                Text(status.buttonTitle)
+            }
+            .font(.system(size: 12, weight: status.isHighlighted ? .semibold : .medium))
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(status.isHighlighted ? .accentColor : Color.secondary.opacity(0.25))
+        .foregroundStyle(status.isHighlighted ? Color.white : Color.primary)
+        .controlSize(.large)
+        .disabled(!status.isActionable)
+        .help("Check for and install Perch updates")
     }
 
     // MARK: - Presets (named layouts)

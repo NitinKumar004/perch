@@ -92,18 +92,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func checkForUpdates(userInitiated: Bool) {
         Task { [updateChecker, notifier] in
             guard let info = await updateChecker.check() else {
-                if userInitiated { self.updateItem?.title = "Perch is up to date" }
+                if userInitiated {
+                    self.updateItem?.title = "Perch is up to date"
+                    self.model.updateStatus = .upToDate
+                }
                 return
             }
             self.pendingUpdate = info
             self.updateItem?.title = "Update to \(info.version) — install now"
+            self.model.updateStatus = .available(version: info.version)
             if userInitiated {
                 self.installUpdate(info)
             } else {
                 notifier.post(ModuleAlert(
                     id: "perch-update-\(info.version)",
                     title: "Perch \(info.version) is available",
-                    body: "Open the menu-bar bird → “Update” to install.",
+                    body: "Open Perch’s panel → “Update to \(info.version)” to install.",
                     url: info.pageURL))
             }
         }
@@ -116,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             installUpdate(info)
         } else {
             updateItem?.title = "Checking…"
+            model.updateStatus = .checking
             checkForUpdates(userInitiated: true)
         }
     }
@@ -126,6 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installUpdate(_ info: UpdateInfo) {
         guard let zip = URL(string: info.zipURL) else { return }
         updateItem?.title = "Downloading \(info.version)…"
+        model.updateStatus = .downloading(version: info.version)
         Task {
             let result = await SelfUpdater.installUpdate(from: zip)
             switch result {
@@ -133,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 break   // app is terminating; the swap script relaunches it
             case .unsupported, .failed:
                 self.updateItem?.title = "Open \(info.version) release page"
+                self.model.updateStatus = .releasePage(version: info.version)
                 if let page = URL(string: info.pageURL) { NSWorkspace.shared.open(page) }
             }
         }
@@ -406,7 +413,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onConnect: { [weak self] in self?.startConnect() },
             onUseToken: { [weak self] pat in self?.signInWithToken(pat) },
             onUseCLI: { [weak self] in self?.signInWithGitHubCLI() },
-            onDisconnect: { [weak self] in self?.disconnect() }
+            onDisconnect: { [weak self] in self?.disconnect() },
+            updateModel: model,
+            onCheckUpdate: { [weak self] in self?.checkForUpdatesClicked() }
         ) { [weak self] edited in
             guard let self else { return }
             try? self.configStore.save(edited)

@@ -24,6 +24,12 @@ public struct ModuleDescriptor: Sendable, Equatable {
     /// so its contents stay reachable. Glanceable modules (CPU, clock) leave this
     /// false.
     public let detailFirst: Bool
+    /// Whether this module going *red* should trigger the "open panel on red"
+    /// behaviour. True for genuine live failures worth interrupting for (a broken
+    /// build, a down deploy, overheating). False for modules whose red is an
+    /// ongoing to-do rather than an incident (a PR needing your review response),
+    /// so they colour the pill/menu-bar without repeatedly forcing the panel open.
+    public let opensPanelOnCritical: Bool
 
     public init(
         id: String,
@@ -31,7 +37,8 @@ public struct ModuleDescriptor: Sendable, Equatable {
         summary: String,
         supportedSlots: Set<Slot>,
         requiresConnection: Bool,
-        detailFirst: Bool = false
+        detailFirst: Bool = false,
+        opensPanelOnCritical: Bool = true
     ) {
         self.id = id
         self.name = name
@@ -39,5 +46,6 @@ public struct ModuleDescriptor: Sendable, Equatable {
         self.supportedSlots = supportedSlots
         self.requiresConnection = requiresConnection
         self.detailFirst = detailFirst
+        self.opensPanelOnCritical = opensPanelOnCritical
     }
 }

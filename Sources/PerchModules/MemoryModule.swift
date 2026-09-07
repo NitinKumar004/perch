@@ -18,27 +18,8 @@ public struct MemoryModule: NotchModule {
     public init() {}
 
     public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<VitalSeries>> {
-        let clock = context.clock
-        let interval = context.refreshSeconds(fallback: 2, minimum: 1)
-        return AsyncStream { continuation in
-            var history: [Int] = []
-            let task = Task {
-                continuation.yield(Snapshot(value: .empty, freshness: .unknown, asOf: clock.now()))
-                while !Task.isCancelled {
-                    if let percent = MemoryReader.usedPercent() {
-                        let value = Int(percent.rounded())
-                        history.append(value)
-                        if history.count > 40 { history.removeFirst(history.count - 40) }
-                        let now = clock.now()
-                        continuation.yield(Snapshot(value: VitalSeries(current: value, history: history),
-                                                    freshness: .live, asOf: now))
-                    }
-                    try? await Task.sleep(for: .seconds(interval))
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
+        vitalSeriesStream(every: context.refreshSeconds(fallback: 2, minimum: 1),
+                          clock: context.clock) { MemoryReader.usedPercent() }
     }
 
     public func face(for value: VitalSeries, in slot: Slot) -> PillFace {

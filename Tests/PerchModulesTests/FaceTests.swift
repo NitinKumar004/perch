@@ -89,6 +89,19 @@ private func series(_ v: Int) -> VitalSeries { VitalSeries(current: v, history: 
     let na = m.face(for: PRState(count: 0, items: [], repoScope: "acme/private", noAccess: true), in: .rightPill)
     #expect(na.text == "PR ?")
     #expect(na.tint == .warning)
+
+    // Unresolved threads → the pill stays a calm count with an attention DOT
+    // (no scary "6 · 54"); the exact number is only in the tooltip.
+    func prItem(unresolved: Int) -> PRSummary {
+        PRSummary(number: 1, title: "t", repo: "o/r", url: "u", unresolvedThreads: unresolved)
+    }
+    let owed = m.face(for: PRState(count: 6, items: [prItem(unresolved: 40), prItem(unresolved: 14)]), in: .rightPill)
+    #expect(owed.text == "6")               // count only, not "6 · 54"
+    #expect(owed.badge == .critical)        // the attention dot
+    #expect(owed.tooltip?.contains("54 review threads to resolve") == true)  // exact count in tooltip
+    // No unresolved threads → no badge.
+    let clean = m.face(for: PRState(count: 6, items: [prItem(unresolved: 0)]), in: .rightPill)
+    #expect(clean.badge == nil)
 }
 
 @Test func prsDetailListsPRsWithLinks() {
@@ -106,15 +119,48 @@ private func series(_ v: Int) -> VitalSeries { VitalSeries(current: v, history: 
 }
 
 @Test func prStatusBadgeMapping() {
-    func pr(_ review: String?, mergeable: String? = nil, draft: Bool = false) -> PRSummary {
+    func pr(_ review: String?, mergeable: String? = "MERGEABLE", draft: Bool = false,
+            checks: String? = nil, unresolved: Int = 0) -> PRSummary {
         PRSummary(number: 1, title: "t", repo: "o/r", url: "u",
-                  reviewDecision: review, mergeable: mergeable, isDraft: draft)
+                  reviewDecision: review, mergeable: mergeable, isDraft: draft,
+                  checksState: checks, unresolvedThreads: unresolved)
     }
     #expect(GitHubPRsModule.status(for: pr("APPROVED")).tint == .good)
-    #expect(GitHubPRsModule.status(for: pr("CHANGES_REQUESTED")).tint == .critical)
     #expect(GitHubPRsModule.status(for: pr("REVIEW_REQUIRED")).tint == .warning)
     #expect(GitHubPRsModule.status(for: pr(nil, mergeable: "CONFLICTING")).label == "conflicts")
     #expect(GitHubPRsModule.status(for: pr("APPROVED", draft: true)).label == "draft")
+
+    // "changes requested" is actionable: unresolved threads ⇒ your move; none ⇒
+    // you've addressed them and it's waiting on the reviewer's re-review.
+    let toResolve = GitHubPRsModule.status(for: pr("CHANGES_REQUESTED", unresolved: 3))
+    #expect(toResolve.label == "3 to resolve")
+    #expect(toResolve.tint == .critical)
+    let awaiting = GitHubPRsModule.status(for: pr("CHANGES_REQUESTED", unresolved: 0))
+    #expect(awaiting.label == "awaiting re-review")
+    #expect(awaiting.tint == .warning)
+
+    // Ready to merge: approved + CI green + no conflict + not draft.
+    let ready = GitHubPRsModule.status(for: pr("APPROVED", checks: "SUCCESS"))
+    #expect(ready.label == "ready to merge")
+    #expect(ready.tint == .good)
+    // Approved but CI still running → not ready yet.
+    #expect(GitHubPRsModule.status(for: pr("APPROVED", checks: "PENDING")).label == "approved")
+}
+
+@Test func prReadyToMergeFlag() {
+    func pr(review: String?, checks: String?, mergeable: String? = "MERGEABLE", draft: Bool = false) -> PRSummary {
+        PRSummary(number: 1, title: "t", repo: "o/r", url: "u",
+                  reviewDecision: review, mergeable: mergeable, isDraft: draft, checksState: checks)
+    }
+    #expect(pr(review: "APPROVED", checks: "SUCCESS").isReadyToMerge)
+    #expect(!pr(review: "APPROVED", checks: "FAILURE").isReadyToMerge)
+    #expect(!pr(review: "CHANGES_REQUESTED", checks: "SUCCESS").isReadyToMerge)
+    #expect(!pr(review: "APPROVED", checks: "SUCCESS", mergeable: "CONFLICTING").isReadyToMerge)
+    #expect(!pr(review: "APPROVED", checks: "SUCCESS", draft: true).isReadyToMerge)
+    // Mergeability still being computed (UNKNOWN) or absent must NOT read as
+    // ready — that's a false green that flips to CONFLICTING moments later.
+    #expect(!pr(review: "APPROVED", checks: "SUCCESS", mergeable: "UNKNOWN").isReadyToMerge)
+    #expect(!pr(review: "APPROVED", checks: "SUCCESS", mergeable: nil).isReadyToMerge)
 }
 
 @Test func prCIStatusMapping() {

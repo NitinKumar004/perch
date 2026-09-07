@@ -30,20 +30,4 @@ enum NetworkReader {
         }
         return (inBytes, outBytes)
     }
-
-    /// Human-readable per-second rate, e.g. "1.2 MB/s". Kept small and pure so
-    /// the pill text is testable without touching the kernel.
-    static func humanRate(_ bytesPerSecond: Double) -> String {
-        let units = ["B", "KB", "MB", "GB"]
-        var value = max(0, bytesPerSecond)
-        var unit = 0
-        while value >= 1024 && unit < units.count - 1 {
-            value /= 1024
-            unit += 1
-        }
-        let text = value >= 100 || unit == 0
-            ? String(format: "%.0f", value)
-            : String(format: "%.1f", value)
-        return "\(text) \(units[unit])/s"
-    }
 }

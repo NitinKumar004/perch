@@ -19,17 +19,8 @@ public struct BatteryModule: NotchModule {
     public init() {}
 
     public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<BatterySample>> {
-        let clock = context.clock
-        return AsyncStream { continuation in
-            let task = Task {
-                while !Task.isCancelled {
-                    continuation.yield(Snapshot(value: BatteryReader.read(), freshness: .live, asOf: clock.now()))
-                    try? await Task.sleep(for: .seconds(20))   // battery moves slowly
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
+        // Battery moves slowly, so poll gently.
+        .periodic(every: 20, clock: context.clock) { BatteryReader.read() }
     }
 
     public func face(for value: BatterySample, in slot: Slot) -> PillFace {

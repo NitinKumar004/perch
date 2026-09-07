@@ -30,17 +30,8 @@ public struct ClockModule: NotchModule {
         let clock = context.clock
         let twelveHour = context.settings["format"] == "12"
         let showSeconds = context.bool("showSeconds", fallback: false)
-        return AsyncStream { continuation in
-            let task = Task {
-                while !Task.isCancelled {
-                    let now = clock.now()
-                    let face = Self.render(now, twelveHour: twelveHour, showSeconds: showSeconds)
-                    continuation.yield(Snapshot(value: face, freshness: .live, asOf: now))
-                    try? await Task.sleep(for: .seconds(1))
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
+        return .periodic(every: 1, clock: clock) {
+            Self.render(clock.now(), twelveHour: twelveHour, showSeconds: showSeconds)
         }
     }
 

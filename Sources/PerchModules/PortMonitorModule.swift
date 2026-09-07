@@ -33,24 +33,15 @@ public struct PortMonitorModule: NotchModule {
     public init() {}
 
     public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<PortStatus>> {
-        let clock = context.clock
         let port = UInt16(context.int("port", fallback: 3000, minimum: 1, maximum: 65535))
         let label = context.settings["label"] ?? ":\(port)"
-        let interval = context.refreshSeconds(fallback: 5, minimum: 2)
-
-        return AsyncStream { continuation in
-            let task = Task {
-                continuation.yield(Snapshot(value: PortStatus(port: port, isUp: false, label: label),
-                                            freshness: .unknown, asOf: clock.now()))
-                while !Task.isCancelled {
-                    let up = await Task.detached { PortProbe.isOpen(port: port) }.value
-                    continuation.yield(Snapshot(value: PortStatus(port: port, isUp: up, label: label),
-                                                freshness: .live, asOf: clock.now()))
-                    try? await Task.sleep(for: .seconds(interval))
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
+        return .periodic(every: context.refreshSeconds(fallback: 5, minimum: 2),
+                         clock: context.clock,
+                         seed: PortStatus(port: port, isUp: false, label: label)) {
+            // The sample closure already runs off the main actor on the polling
+            // task, so probe inline — a detached task wouldn't inherit
+            // cancellation and would outlive a teardown mid-probe.
+            PortStatus(port: port, isUp: PortProbe.isOpen(port: port), label: label)
         }
     }
 

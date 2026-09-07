@@ -38,22 +38,10 @@ public struct LoadModule: NotchModule {
     public init() {}
 
     public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<LoadSample>> {
-        let clock = context.clock
-        let interval = context.refreshSeconds(fallback: 3, minimum: 1)
         let cores = max(1, ProcessInfo.processInfo.activeProcessorCount)
-        return AsyncStream { continuation in
-            let task = Task {
-                continuation.yield(Snapshot(value: .zero, freshness: .unknown, asOf: clock.now()))
-                while !Task.isCancelled {
-                    if let one = LoadReader.read() {
-                        continuation.yield(Snapshot(value: LoadSample(oneMinute: one, cores: cores),
-                                                    freshness: .live, asOf: clock.now()))
-                    }
-                    try? await Task.sleep(for: .seconds(interval))
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
+        return .periodic(every: context.refreshSeconds(fallback: 3, minimum: 1),
+                         clock: context.clock, seed: .zero) {
+            LoadReader.read().map { LoadSample(oneMinute: $0, cores: cores) }
         }
     }
 

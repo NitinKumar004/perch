@@ -15,7 +15,8 @@ public enum ConfigMigrator {
 
         while current.schemaVersion < LayoutConfig.currentVersion {
             switch current.schemaVersion {
-            // case 1: current = migrateV1toV2(current)
+            case 1:
+                current = migrateV1toV2(current)
             default:
                 // Unknown older version we don't have a step for: stamp it to the
                 // current version rather than looping forever.
@@ -24,5 +25,15 @@ public enum ConfigMigrator {
             changed = true
         }
         return (current, changed)
+    }
+
+    /// v1 → v2. v2 added `hudPosition` and `global`, both already handled by
+    /// `LayoutConfig`'s defaulting decoder, so the data transform is the identity
+    /// — but the step is real and exercised, so the framework is proven working
+    /// before a future bump needs a step that actually moves data.
+    private static func migrateV1toV2(_ config: LayoutConfig) -> LayoutConfig {
+        var next = config
+        next.schemaVersion = 2
+        return next
     }
 }

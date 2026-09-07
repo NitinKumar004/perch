@@ -50,15 +50,24 @@ final class SlotBinder {
     func bindShared(_ module: AnyNotchModule, settings: [String: String],
                     pills: Set<Slot>, panelIDs: [String]) {
         let context = ModuleContext(clock: baseContext.clock, settings: settings)
+        let opensOnCritical = module.descriptor.opensPanelOnCritical
         let stream = module.renderStream(context, slot: .panel)  // slot-independent face
         let task = Task { @MainActor [model, notifier, onCritical, onStatusChange] in
-            var wasCritical = false
+            // nil until the first *live* render establishes a baseline. Only
+            // real observations count: a module yields a `.unknown` placeholder
+            // seed before its first poll, so if we baselined on the seed, the
+            // first real value of an already-failing build would look like a
+            // fresh good→red transition and pop the panel on every launch/reload.
+            // Baselining on the first live render fixes that — an already-red
+            // build shows in the red menu-bar bird; only a genuine good→red
+            // transition DURING the session auto-opens.
+            var tracker = AutoOpenTracker(opensOnCritical: opensOnCritical)
             for await render in stream {
                 if let alert = render.alert { notifier.post(alert) }
-                // Fire on the transition into red, not on every red poll.
-                let isCritical = render.pill.face.tint == .critical
-                if isCritical && !wasCritical { onCritical() }
-                wasCritical = isCritical
+                if tracker.observe(isCritical: render.pill.face.tint == .critical,
+                                   isLive: render.pill.freshness.isTrustworthy) {
+                    onCritical()
+                }
                 if pills.contains(.leftPill) { model.leftPill = render.pill }
                 if pills.contains(.rightPill) { model.rightPill = render.pill }
                 for id in panelIDs {

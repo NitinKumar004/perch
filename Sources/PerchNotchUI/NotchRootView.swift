@@ -35,6 +35,7 @@ public struct NotchRootView: View {
         }
         .padding(.horizontal, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .environment(\.palette, model.palette)   // the active theme skins everything below
         .animation(.easeInOut(duration: 0.2), value: model.leftPill)
         .animation(.easeInOut(duration: 0.2), value: model.rightPill)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: model.isPanelOpen)

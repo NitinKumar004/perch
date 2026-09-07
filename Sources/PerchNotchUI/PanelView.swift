@@ -50,6 +50,7 @@ struct PanelView: View {
     @State private var draggingID: String?      // the section being dragged
     @State private var order: [String] = []     // working display order (live during a drag)
     @State private var expanded: Set<String> = []  // sections showing their full list
+    @Environment(\.palette) private var palette
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,9 +69,9 @@ struct PanelView: View {
         .frame(width: 380)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.black.opacity(0.92))
+                .fill(palette.surface.opacity(0.92))
                 .overlay(RoundedRectangle(cornerRadius: 18)
-                    .strokeBorder(isDropTargeted ? Color.accentColor : .white.opacity(0.08),
+                    .strokeBorder(isDropTargeted ? palette.accent : palette.ink(0.08),
                                   lineWidth: isDropTargeted ? 2 : 1))
         )
         .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
@@ -132,12 +133,12 @@ struct PanelView: View {
         VStack(spacing: 0) {
             ForEach(orderedItems) { item in
                 section(item)
-                Divider().overlay(.white.opacity(0.06))
+                Divider().overlay(palette.ink(0.06))
             }
             if items.isEmpty {
                 Text("No panel modules configured")
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .foregroundStyle(palette.ink(0.4))
                     .padding(.vertical, 14)
             }
         }
@@ -156,11 +157,11 @@ struct PanelView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(item.title)
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.85))
+                        .foregroundStyle(palette.ink(0.85))
                     if let subtitle = item.subtitle {
                         Text(subtitle)
                             .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.45))
+                            .foregroundStyle(palette.ink(0.45))
                             .lineLimit(1)
                     }
                 }
@@ -220,7 +221,7 @@ struct PanelView: View {
                     .font(.system(size: 11, weight: .medium))
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(.white.opacity(0.5))
+            .foregroundStyle(palette.ink(0.5))
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
             .contentShape(Rectangle())
@@ -244,7 +245,7 @@ struct PanelView: View {
         let text = PanelDedup.headerPillText(title: item.title, pillText: face.text)
         guard text != face.text else { return item.content }
         let newFace = PillFace(text: text, symbolName: face.symbolName, tint: face.tint,
-                               tooltip: face.tooltip, segments: nil)
+                               tooltip: face.tooltip, segments: nil, badge: face.badge)
         return PillContent(face: newFace, freshness: item.content.freshness, asOf: item.content.asOf)
     }
 
@@ -269,7 +270,7 @@ struct PanelView: View {
                 if let subtitle {
                     Text(subtitle)
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(palette.ink(0.5))
                         .lineLimit(1)
                 }
                 Spacer(minLength: 8)
@@ -299,12 +300,12 @@ struct PanelView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.title)
                     .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.9))
+                    .foregroundStyle(palette.ink(0.9))
                     .lineLimit(1)
                 if let subtitle = row.subtitle {
                     Text(subtitle)
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(palette.ink(0.5))
                         .lineLimit(1)
                 }
             }
@@ -320,7 +321,7 @@ struct PanelView: View {
             if row.url != nil {
                 Image(systemName: "arrow.up.right.square")
                     .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .foregroundStyle(palette.ink(0.4))
             }
         }
         .padding(.horizontal, 16)
@@ -341,7 +342,7 @@ struct PanelView: View {
                 Button { actions.onAction(secondary) } label: {
                     Image(systemName: row.secondaryIcon ?? "xmark.circle.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.35))
+                        .foregroundStyle(palette.ink(0.35))
                 }
                 .buttonStyle(.plain)
                 .padding(.trailing, 12)
@@ -350,21 +351,12 @@ struct PanelView: View {
         }
     }
 
-    private func tintColor(_ tint: Tint) -> Color {
-        switch tint {
-        case .neutral:  return Color(white: 0.85)
-        case .good:     return Color(red: 0.25, green: 0.73, blue: 0.31)
-        case .warning:  return Color(red: 0.89, green: 0.70, blue: 0.25)
-        case .critical: return Color(red: 1.00, green: 0.42, blue: 0.37)
-        case .info:     return Color(red: 0.42, green: 0.71, blue: 1.00)
-        case .accent:   return Color(red: 0.72, green: 0.63, blue: 1.00)
-        }
-    }
+    private func tintColor(_ tint: Tint) -> Color { palette.color(for: tint) }
 
     private var footer: some View {
         HStack(spacing: 8) {
             if !isConnected {
-                controlButton("Connect GitHub", system: "person.badge.key", tint: .accentColor, action: actions.onConnect)
+                controlButton("Connect GitHub", system: "person.badge.key", tint: palette.accent, action: actions.onConnect)
             }
             controlButton("Settings", system: "gearshape", action: actions.onSettings)
             controlButton("Reload", system: "arrow.clockwise", action: actions.onReload)
@@ -376,15 +368,15 @@ struct PanelView: View {
         .padding(.bottom, 4)
     }
 
-    private func controlButton(_ title: String, system: String, tint: Color = .white,
+    private func controlButton(_ title: String, system: String, tint: Color? = nil,
                                action: @escaping @MainActor () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: system)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(tint.opacity(0.9))
+                .foregroundStyle((tint ?? palette.onSurface).opacity(0.9))
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
-                .background(Capsule().fill(.white.opacity(0.08)))
+                .background(Capsule().fill(palette.ink(0.08)))
         }
         .buttonStyle(.plain)
     }

@@ -36,20 +36,9 @@ public struct TimerModule: NotchModule {
         let total = max(1, minutes) * 60
         let id = "\(minutes)"
 
-        return AsyncStream { continuation in
-            let task = Task {
-                while !Task.isCancelled {
-                    let now = clock.now()
-                    let (elapsed, paused) = await controller.elapsed(id: id, now: now)
-                    let remaining = max(0, total - Int(elapsed))
-                    continuation.yield(Snapshot(
-                        value: TimerState(remaining: remaining, isPaused: paused, id: id),
-                        freshness: .live, asOf: now))
-                    try? await Task.sleep(for: .seconds(1))
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
+        return .periodic(every: 1, clock: clock) {
+            let (elapsed, paused) = await controller.elapsed(id: id, now: clock.now())
+            return TimerState(remaining: max(0, total - Int(elapsed)), isPaused: paused, id: id)
         }
     }
 

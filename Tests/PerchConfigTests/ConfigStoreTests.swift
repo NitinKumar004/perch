@@ -76,7 +76,7 @@ private func tempConfigURL() -> URL {
     let url = tempConfigURL()
     let store = ConfigStore(fileURL: url)
     var config = LayoutConfig(activePreset: "default", presets: ["default": Preset()])
-    config.global = GlobalSettings(autoOpenOnRed: true, quietHours: "22:00-08:00")
+    config.global = GlobalSettings(autoOpenOnRed: true, quietHours: "22:00-08:00", theme: "nord")
     try store.save(config)
     #expect(store.load().global == config.global)
 
@@ -86,6 +86,13 @@ private func tempConfigURL() -> URL {
     let loaded = store.load()
     #expect(loaded.global == GlobalSettings())      // defaulted, not crashed
     #expect(loaded.schemaVersion == LayoutConfig.currentVersion)  // migrated forward
+
+    // A pre-versioning file with NO schemaVersion key must migrate (treated as
+    // v1), NOT be read as corrupt and reset — that would wipe the user's presets.
+    try Data(#"{"activePreset":"work","presets":{"work":{"panel":[]}}}"#.utf8).write(to: url)
+    let unversioned = store.load()
+    #expect(unversioned.activePreset == "work")     // presets preserved, not wiped
+    #expect(unversioned.schemaVersion == LayoutConfig.currentVersion)
 }
 
 @Test func normalizedSlotsDedupesOnlyIdenticalBindings() {

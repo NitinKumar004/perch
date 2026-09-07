@@ -31,3 +31,25 @@ import Foundation
     #expect(mapped.asOf == asOf)
     #expect(mapped.freshness == .stale(since: asOf))
 }
+
+@Test func usageTintCrossesThresholds() {
+    // Default critical is 90 (CPU/RAM style).
+    #expect(Tint.forUsage(percent: 10, warn: 70) == .good)
+    #expect(Tint.forUsage(percent: 70, warn: 70) == .warning)
+    #expect(Tint.forUsage(percent: 89, warn: 70) == .warning)
+    #expect(Tint.forUsage(percent: 90, warn: 70) == .critical)
+    // Disk-style higher thresholds.
+    #expect(Tint.forUsage(percent: 84, warn: 85, critical: 95) == .good)
+    #expect(Tint.forUsage(percent: 85, warn: 85, critical: 95) == .warning)
+    #expect(Tint.forUsage(percent: 95, warn: 85, critical: 95) == .critical)
+}
+
+@Test func byteFormatSizesAndRates() {
+    #expect(ByteFormat.size(0) == "0 B")
+    #expect(ByteFormat.size(512 * 1024) == "512 KB")
+    #expect(ByteFormat.size(UInt64(2.5 * 1_073_741_824)) == "2.5 GB")
+    #expect(ByteFormat.rate(0) == "0 B/s")
+    #expect(ByteFormat.rate(512) == "512 B/s")
+    #expect(ByteFormat.rate(1536) == "1.5 KB/s")
+    #expect(ByteFormat.rate(-10) == "0 B/s")   // never negative
+}

@@ -46,21 +46,10 @@ public struct DiskModule: NotchModule {
     public init() {}
 
     public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<DiskSample>> {
-        let clock = context.clock
         let path = context.settings["path"] ?? "/"
-        let interval = context.refreshSeconds(fallback: 30, minimum: 5)
-        return AsyncStream { continuation in
-            let task = Task {
-                continuation.yield(Snapshot(value: .zero, freshness: .unknown, asOf: clock.now()))
-                while !Task.isCancelled {
-                    if let sample = DiskReader.read(path: path) {
-                        continuation.yield(Snapshot(value: sample, freshness: .live, asOf: clock.now()))
-                    }
-                    try? await Task.sleep(for: .seconds(interval))
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
+        return .periodic(every: context.refreshSeconds(fallback: 30, minimum: 5),
+                         clock: context.clock, seed: .zero) {
+            DiskReader.read(path: path)
         }
     }
 
@@ -71,27 +60,26 @@ public struct DiskModule: NotchModule {
     public func detail(for value: DiskSample) -> [DetailRow] {
         let f = Self.face(for: value)
         return [DetailRow(id: "disk", title: "Disk free",
-                          subtitle: "\(SwapModule.human(UInt64(max(0, value.freeBytes)))) free · \(value.usedPercent)% used",
+                          subtitle: "\(ByteFormat.size(UInt64(max(0, value.freeBytes)))) free · \(value.usedPercent)% used",
                           tint: f.tint, symbolName: "externaldrive")]
     }
 
     public func notification(for value: DiskSample, previous: DiskSample?) -> ModuleAlert? {
         guard value.usedPercent >= 90, let previous, previous.usedPercent < 90 else { return nil }
         // Distinct id per rising edge so refilling the disk later re-warns.
-        return ModuleAlert(id: "disk-low-\(ThermalModule.episodeToken())", title: "Disk almost full",
-                           body: "\(SwapModule.human(UInt64(max(0, value.freeBytes)))) free — free space to avoid slowdowns.")
+        return ModuleAlert(id: "disk-low-\(AlertEpisode.token())", title: "Disk almost full",
+                           body: "\(ByteFormat.size(UInt64(max(0, value.freeBytes)))) free — free space to avoid slowdowns.")
     }
 
     static func face(for sample: DiskSample) -> PillFace {
-        let free = SwapModule.human(UInt64(max(0, sample.freeBytes)))
+        let free = ByteFormat.size(UInt64(max(0, sample.freeBytes)))
         return PillFace(text: "Disk \(free)", symbolName: "externaldrive",
                         tint: tint(sample.usedPercent),
                         tooltip: "\(free) free · \(sample.usedPercent)% used")
     }
     /// Under 85% used is fine, 85–95% getting tight, over 95% critical.
     static func tint(_ usedPercent: Int) -> Tint {
-        if usedPercent >= 95 { return .critical }
-        if usedPercent >= 85 { return .warning }
-        return .good
+        // Disk fills later than CPU/RAM, so warn/critical sit higher.
+        Tint.forUsage(percent: usedPercent, warn: 85, critical: 95)
     }
 }

@@ -22,6 +22,7 @@ struct SettingsView: View {
     @State private var hudPosition: String
     @State private var autoOpenOnRed: Bool
     @State private var quietHours: String
+    @State private var theme: String
     @State private var config: LayoutConfig       // the whole layout being edited
     @State private var activePreset: String       // the preset key currently shown
     @State private var presetNameField: String    // editable name of the active preset
@@ -72,6 +73,7 @@ struct SettingsView: View {
         _hudPosition = State(initialValue: config.hudPosition)
         _autoOpenOnRed = State(initialValue: config.global.autoOpenOnRed)
         _quietHours = State(initialValue: config.global.quietHours ?? "")
+        _theme = State(initialValue: config.global.theme)
     }
 
     var body: some View {
@@ -84,6 +86,8 @@ struct SettingsView: View {
                     connectionCard
                     Divider()
                     positionSection
+                    Divider()
+                    themeSection
                     Divider()
                     behaviourSection
                     Divider()
@@ -248,6 +252,59 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Theme
+
+    private var themeSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Theme").font(.system(size: 13, weight: .semibold))
+            // A compact grid of preview tiles — each theme shown on its own
+            // surface, the selected one ringed. Far tighter than a full-width row
+            // per theme, and the swatch IS the choice. Applies on Save.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)],
+                      alignment: .leading, spacing: 10) {
+                ForEach(Theme.allCases) { t in
+                    themeTile(t)
+                }
+            }
+            Text("Colours the pills and panel. “System” is the original look.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+    }
+
+    /// One selectable theme tile: a mini preview on the theme's own surface
+    /// (status dots + a name in the theme's own ink), ringed when selected.
+    private func themeTile(_ t: Theme) -> some View {
+        let selected = theme == t.id
+        let p = t.palette
+        return Button {
+            theme = t.id
+        } label: {
+            HStack(spacing: 8) {
+                Text(t.label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(p.onSurface)
+                    .lineLimit(1)
+                Spacer(minLength: 6)
+                HStack(spacing: 3) {
+                    ForEach(Array([p.good, p.warning, p.critical, p.accent].enumerated()), id: \.offset) { _, c in
+                        Circle().fill(c).frame(width: 9, height: 9)
+                    }
+                }
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 11)).foregroundStyle(p.accent)
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(p.surface))
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(selected ? Color.accentColor : p.onSurface.opacity(0.15),
+                              lineWidth: selected ? 2 : 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Behaviour
 
     private var behaviourSection: some View {
@@ -380,7 +437,7 @@ struct SettingsView: View {
                 if !entries.isEmpty {
                     Section(group.label) {
                         ForEach(entries) { entry in
-                            Button(Self.pickerLabel(for: entry)) {
+                            Button(entry.pickerLabel) {
                                 editor.wrappedValue.moduleID = entry.id
                             }
                         }
@@ -398,35 +455,6 @@ struct SettingsView: View {
         .menuStyle(.borderlessButton)
         .padding(.horizontal, 8).padding(.vertical, 5)
         .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.5)))
-    }
-
-    /// A compact "Name — short tag" for a menu item: scannable, never a full
-    /// sentence. The full summary still shows below the picker once selected.
-    static func pickerLabel(for entry: CatalogEntry) -> String {
-        let tag: String
-        switch entry.id {
-        case "system.combined":     tag = "several in one"
-        case "system.cpu":          tag = "usage %"
-        case "system.memory":       tag = "RAM in use"
-        case "system.network":      tag = "up / down"
-        case "system.thermal":      tag = "heat warning"
-        case "system.swap":         tag = "thrash warning"
-        case "system.load":         tag = "system load"
-        case "system.disk":         tag = "free space"
-        case "system.clipboard":    tag = "recent copies"
-        case "system.fileshelf":    tag = "stash files"
-        case "system.port":         tag = "port up?"
-        case "system.battery":      tag = "charge %"
-        case "focus.timer":         tag = "pomodoro"
-        case "system.calendar":     tag = "next meeting"
-        case "system.clock":        tag = "the time"
-        case "github.builds":       tag = "one repo's CI"
-        case "github.builds.multi": tag = "many repos' CI"
-        case "github.prs":          tag = "review queue"
-        case "deploy.health":       tag = "URL up / down"
-        default:                    tag = ""
-        }
-        return tag.isEmpty ? entry.name : "\(entry.name)  ·  \(tag)"
     }
 
     @ViewBuilder
@@ -569,16 +597,26 @@ struct SettingsView: View {
         out.hudPosition = hudPosition
         let trimmed = quietHours.trimmingCharacters(in: .whitespaces)
         out.global = GlobalSettings(autoOpenOnRed: autoOpenOnRed,
-                                    quietHours: trimmed.isEmpty ? nil : trimmed)
+                                    quietHours: trimmed.isEmpty ? nil : trimmed,
+                                    theme: theme)
         onSave(out)
     }
 
     // MARK: - Grouping
 
-    /// How a module is grouped in the picker — derived from what it needs, so
-    /// adding a new module to the catalog slots it in automatically.
+    /// Presentation for a picker group. The *classification* is the module's own
+    /// declared `ModuleCategory` (in `ModuleSpecs`) — the view only supplies the
+    /// section's label and icon, so a module is never mis-grouped by a heuristic.
     private enum ModuleGroup: CaseIterable {
         case local, github, web
+
+        init(_ category: ModuleCategory) {
+            switch category {
+            case .local:  self = .local
+            case .github: self = .github
+            case .web:    self = .web
+            }
+        }
 
         var label: String {
             switch self {
@@ -597,9 +635,7 @@ struct SettingsView: View {
     }
 
     private func group(for entry: CatalogEntry) -> ModuleGroup {
-        if entry.requiresConnection { return .github }
-        if entry.settings.contains(where: { $0.key == "url" }) { return .web }
-        return .local
+        ModuleGroup(entry.category)
     }
 }
 

@@ -99,13 +99,14 @@ private func firstRender(_ module: AnyNotchModule,
                 SlotBinding(module: "system.port", settings: ["port": "8080", "label": "api"]),
             ])],
         hudPosition: "right")
-    config.global = GlobalSettings(autoOpenOnRed: true, quietHours: "22:00-08:00")
+    config.global = GlobalSettings(autoOpenOnRed: true, quietHours: "22:00-08:00", theme: "midnight")
     try store.save(config)
 
     // Reload from disk → every configured value survives exactly.
     let reloaded = store.load()
     #expect(reloaded == config)
     #expect(reloaded.global.autoOpenOnRed)
+    #expect(reloaded.global.theme == "midnight")   // chosen theme persists
     #expect(reloaded.current?.rightPill?.settings["format"] == "12")
     #expect(reloaded.current?.panel.first?.settings["limit"] == "3")
     #expect(reloaded.hudPosition == "right")
@@ -239,7 +240,7 @@ private func firstRender(_ module: AnyNotchModule,
 }
 
 @Test func e2e_calendarShowsCountdownForConfiguredLookahead() async {
-    let soon = NextEvent(title: "Sprint review", startsAt: Date().addingTimeInterval(20 * 60), isAllDay: false)
+    let soon = NextEvent(title: "Sprint review", startsAt: Date().addingTimeInterval(20 * 60))
     let m = AnyNotchModule(CalendarModule(reader: FakeCal(event: soon)))
     let render = await firstRender(m, settings: ["lookaheadHours": "6"]) { $0.pill.freshness == .live }
     #expect(render?.detail.first?.title == "Sprint review")

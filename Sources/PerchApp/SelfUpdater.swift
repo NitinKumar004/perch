@@ -38,7 +38,13 @@ enum SelfUpdater {
             try FileManager.default.moveItem(at: downloaded, to: zipPath)
 
             // Unpack with ditto (handles the app bundle's symlinks correctly).
-            try run("/usr/bin/ditto", ["-x", "-k", zipPath.path, tmp.path])
+            // Off the main actor: ditto blocks for seconds on a multi-MB bundle,
+            // and freezing the run loop would hang the notch UI mid-update.
+            let zipPathString = zipPath.path
+            let tmpPathString = tmp.path
+            try await Task.detached {
+                try SelfUpdater.run("/usr/bin/ditto", ["-x", "-k", zipPathString, tmpPathString])
+            }.value
             let newApp = tmp.appendingPathComponent("Perch.app")
             guard FileManager.default.fileExists(atPath: newApp.path) else {
                 return .failed("archive didn't contain Perch.app")
@@ -91,8 +97,10 @@ enum SelfUpdater {
         try process.run()   // detached — outlives us on purpose
     }
 
+    /// Run a subprocess to completion. `nonisolated` so callers can hop it off
+    /// the main actor (ditto blocks) via `Task.detached`.
     @discardableResult
-    private static func run(_ launchPath: String, _ arguments: [String]) throws -> Int32 {
+    nonisolated static func run(_ launchPath: String, _ arguments: [String]) throws -> Int32 {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launchPath)
         process.arguments = arguments

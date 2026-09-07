@@ -43,7 +43,10 @@ public struct GitHubPRsModule: NotchModule {
         summary: "How many PRs are waiting on your review.",
         supportedSlots: [.leftPill, .rightPill, .panel],
         requiresConnection: true,
-        detailFirst: true
+        detailFirst: true,
+        // A PR needing your review response is a to-do, not a live incident —
+        // colour the pill red, but don't keep forcing the panel open for it.
+        opensPanelOnCritical: false
     )
 
     private let client: GitHubAPIClient
@@ -131,8 +134,24 @@ public struct GitHubPRsModule: NotchModule {
             return PillFace(text: "PR", symbolName: "checkmark.seal", tint: .neutral,
                             tooltip: "No PRs waiting on you")
         }
+        // The pill stays a calm glance: the PR count, plus a small attention dot
+        // when you owe review responses. The exact number of threads lives in the
+        // tooltip and in each panel row ("#2928 … · 12 to resolve") — no scary
+        // figure shouting from the menu bar.
+        let unresolved = value.items.reduce(0) { $0 + $1.unresolvedThreads }
+        let base = "\(value.count) PR\(value.count == 1 ? "" : "s")"
+        if unresolved > 0 {
+            // "N+" when any PR had more threads than we fetched, so the tooltip
+            // never claims an exact figure it didn't fully count.
+            let more = value.items.contains { $0.moreThreads }
+            let count = more ? "\(unresolved)+" : "\(unresolved)"
+            return PillFace(
+                text: "\(value.count)", symbolName: "arrow.triangle.pull", tint: .warning,
+                tooltip: "\(base) · \(count) review thread\(unresolved == 1 && !more ? "" : "s") to resolve",
+                badge: .critical)
+        }
         return PillFace(text: "\(value.count)", symbolName: "arrow.triangle.pull",
-                        tint: .warning, tooltip: "\(value.count) PR\(value.count == 1 ? "" : "s") waiting on your review")
+                        tint: .warning, tooltip: "\(base) waiting on your review")
     }
 
     public func notification(for value: PRState, previous: PRState?) -> ModuleAlert? {
@@ -204,9 +223,18 @@ public struct GitHubPRsModule: NotchModule {
     static func status(for pr: PRSummary) -> (label: String, tint: Tint, symbol: String) {
         if pr.isDraft { return ("draft", .neutral, "pencil.circle") }
         if pr.mergeable == "CONFLICTING" { return ("conflicts", .critical, "exclamationmark.triangle.fill") }
+        // The good end-state: approved, green, no conflicts — good to land.
+        if pr.isReadyToMerge { return ("ready to merge", .good, "checkmark.seal.fill") }
         switch pr.reviewDecision {
         case "APPROVED":          return ("approved", .good, "checkmark.circle.fill")
-        case "CHANGES_REQUESTED": return ("changes requested", .critical, "xmark.circle.fill")
+        case "CHANGES_REQUESTED":
+            // GitHub holds this decision until a reviewer re-reviews, so make it
+            // actionable: unresolved threads ⇒ your move (resolve them); none
+            // left ⇒ you've addressed them and it's waiting on the reviewer.
+            if pr.unresolvedThreads > 0 {
+                return ("\(pr.unresolvedLabel) to resolve", .critical, "text.bubble.fill")
+            }
+            return ("awaiting re-review", .warning, "clock.arrow.circlepath")
         case "REVIEW_REQUIRED":   return ("review required", .warning, "clock.fill")
         default:                  return ("open", .info, "arrow.triangle.pull")
         }

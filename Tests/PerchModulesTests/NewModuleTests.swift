@@ -122,9 +122,7 @@ import PerchModuleKit
     #expect(SwapModule.tint(gb / 2) == .good)
     #expect(SwapModule.tint(gb) == .warning)
     #expect(SwapModule.tint(4 * gb) == .critical)
-    #expect(SwapModule.human(0) == "0 B")
-    #expect(SwapModule.human(512 * 1024) == "512 KB")
-    #expect(SwapModule.human(UInt64(2.5 * Double(gb))) == "2.5 GB")
+    // (ByteFormat.size/.rate are covered canonically in PerchCoreTests.)
     let m = SwapModule()
     #expect(m.notification(for: 4 * gb, previous: gb) != nil)   // crossed 3 GB
     #expect(m.notification(for: 4 * gb, previous: 4 * gb) == nil)
@@ -169,15 +167,19 @@ import PerchModuleKit
     #expect(!BatteryModule.descriptor.detailFirst)
 }
 
-// MARK: - Network
-
-@Test func networkRateIsHumanReadable() {
-    #expect(NetworkReader.humanRate(0) == "0 B/s")
-    #expect(NetworkReader.humanRate(512) == "512 B/s")
-    #expect(NetworkReader.humanRate(1536) == "1.5 KB/s")
-    #expect(NetworkReader.humanRate(5 * 1024 * 1024) == "5.0 MB/s")
-    #expect(NetworkReader.humanRate(-10) == "0 B/s")   // never negative
+@Test func onlyLiveIncidentsAutoOpenThePanel() {
+    // A PR needing your review response is a to-do — it colours red but must NOT
+    // force the panel open.
+    #expect(!GitHubPRsModule.descriptor.opensPanelOnCritical)
+    // Genuine live failures keep the interrupt (default true).
+    #expect(GitHubBuildsModule.descriptor.opensPanelOnCritical)
+    #expect(DeployModule.descriptor.opensPanelOnCritical)
+    #expect(ThermalModule.descriptor.opensPanelOnCritical)
+    #expect(DiskModule.descriptor.opensPanelOnCritical)
 }
+
+// MARK: - Network
+// (ByteFormat.rate is covered canonically in PerchCoreTests.)
 
 @Test func networkFaceShowsDownload() {
     let m = NetworkModule()
@@ -309,9 +311,9 @@ private struct FakeCalendar: CalendarReading {
 @Test func calendarFaceReflectsImminence() {
     let m = CalendarModule(reader: FakeCalendar(event: nil, access: true))
     #expect(m.face(for: .none, in: .rightPill).text == "clear")
-    let soon = NextEvent(title: "Standup", startsAt: Date().addingTimeInterval(3 * 60), isAllDay: false)
+    let soon = NextEvent(title: "Standup", startsAt: Date().addingTimeInterval(3 * 60))
     #expect(m.face(for: soon, in: .rightPill).tint == .warning)   // ≤5 min → amber
-    let later = NextEvent(title: "Review", startsAt: Date().addingTimeInterval(60 * 60), isAllDay: false)
+    let later = NextEvent(title: "Review", startsAt: Date().addingTimeInterval(60 * 60))
     #expect(m.face(for: later, in: .rightPill).tint == .info)
     #expect(m.detail(for: later)[0].title == "Review")
 }
@@ -325,4 +327,26 @@ private struct NoopStore: TokenStore {
     func load() throws -> GitHubToken? { nil }
     func save(_ token: GitHubToken) throws {}
     func clear() throws {}
+}
+
+@Test func catalogEntryPickerLabelFormatsNameAndTag() {
+    let thermal = ModuleCatalog.entry(id: "system.thermal")!
+    #expect(thermal.pickerLabel == "Thermal  ·  heat warning")
+    // Every pickable module carries a non-empty tag (none fall back to bare name).
+    for entry in ModuleCatalog.all() {
+        #expect(!entry.tag.isEmpty, "no picker tag for \(entry.id)")
+        #expect(entry.pickerLabel.contains(" · "), "picker label missing tag for \(entry.id)")
+    }
+}
+
+@Test func registryHasNoDriftBetweenCatalogAndFactory() {
+    // Every pickable catalog id must resolve to a spec (catalog derives from
+    // specs, so this can't drift) and carry a declared category.
+    for entry in ModuleCatalog.all() {
+        #expect(ModuleSpecs.spec(id: entry.id) != nil, "catalog id \(entry.id) has no spec")
+    }
+    // Hidden modules are resolvable (a config may reference them) but excluded
+    // from the picker — the old FakeBuild drift can't recur.
+    #expect(ModuleSpecs.spec(id: FakeBuildModule.descriptor.id) != nil)
+    #expect(!ModuleCatalog.all().contains { $0.id == FakeBuildModule.descriptor.id })
 }

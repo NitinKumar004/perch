@@ -11,6 +11,7 @@ import PerchModuleKit
 public struct PillView: View {
     private let content: PillContent
     @State private var isHovering = false
+    @Environment(\.palette) private var palette
 
     public init(_ content: PillContent) {
         self.content = content
@@ -32,10 +33,15 @@ public struct PillView: View {
                 // an animated text swap crossfades old over new, so the two
                 // strings overlap for the fade's duration. Swap text instantly.
                 .contentTransition(.identity)
+            if let badge = content.face.badge {
+                Circle()
+                    .fill(palette.color(for: badge))
+                    .frame(width: 6, height: 6)   // calm attention dot; the count is in the tooltip
+            }
             if let staleLabel {
                 Text(staleLabel)
                     .font(.system(size: 9, weight: .regular, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.ink(0.4))   // follows the theme, like the rest
             }
         }
         .fixedSize()   // the whole pill sizes to content, so the flank layout can't
@@ -49,7 +55,7 @@ public struct PillView: View {
         // A whisper-faint fill only appears on hover, the way native items do.
         .background(
             RoundedRectangle(cornerRadius: Self.pillRadius, style: .continuous)
-                .fill(Color.white.opacity(isHovering ? 0.14 : 0))
+                .fill(palette.onSurface.opacity(isHovering ? 0.14 : 0))
         )
         .contentShape(RoundedRectangle(cornerRadius: Self.pillRadius, style: .continuous))
         .onHover { hovering in
@@ -63,7 +69,7 @@ public struct PillView: View {
     static let pillHeight: CGFloat = 22
     static var pillRadius: CGFloat { 6 }
 
-    private var tintColor: Color { Self.color(for: content.face.tint) }
+    private var tintColor: Color { palette.color(for: content.face.tint) }
 
     /// The pill's text — either a single string, or, for a combined pill, one
     /// coloured segment per metric separated by a muted dot so each keeps its
@@ -72,8 +78,8 @@ public struct PillView: View {
         if let segments = content.face.segments, !segments.isEmpty {
             HStack(spacing: 5) {
                 ForEach(Array(segments.enumerated()), id: \.offset) { i, seg in
-                    if i > 0 { Text("·").foregroundStyle(.white.opacity(0.3)) }
-                    Text(seg.text).foregroundStyle(Self.color(for: seg.tint))
+                    if i > 0 { Text("·").foregroundStyle(palette.ink(0.3)) }
+                    Text(seg.text).foregroundStyle(palette.color(for: seg.tint))
                 }
             }
             .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -82,17 +88,6 @@ public struct PillView: View {
             Text(content.face.text)
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .lineLimit(1)
-        }
-    }
-
-    static func color(for tint: Tint) -> Color {
-        switch tint {
-        case .neutral:  return Color(white: 0.9)
-        case .good:     return Color(red: 0.25, green: 0.73, blue: 0.31)
-        case .warning:  return Color(red: 0.89, green: 0.70, blue: 0.25)
-        case .critical: return Color(red: 1.00, green: 0.42, blue: 0.37)
-        case .info:     return Color(red: 0.42, green: 0.71, blue: 1.00)
-        case .accent:   return Color(red: 0.72, green: 0.63, blue: 1.00)
         }
     }
 

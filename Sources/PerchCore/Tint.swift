@@ -14,3 +14,15 @@ public enum Tint: String, Codable, Sendable {
     case info
     case accent
 }
+
+public extension Tint {
+    /// The status tint for a 0–100 usage percentage: `.good` below `warn`,
+    /// `.warning` from `warn`, `.critical` from `critical`. One home for the
+    /// "green/amber/red by percent" rule every vitals-style module shares — pass
+    /// the thresholds that fit the metric (disk fills later than CPU).
+    static func forUsage(percent: Int, warn: Int, critical: Int = 90) -> Tint {
+        if percent >= critical { return .critical }
+        if percent >= warn { return .warning }
+        return .good
+    }
+}

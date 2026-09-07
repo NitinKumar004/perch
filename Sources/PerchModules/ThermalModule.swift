@@ -34,18 +34,8 @@ public struct ThermalModule: NotchModule {
     public init() {}
 
     public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<ThermalLevel>> {
-        let clock = context.clock
-        let interval = context.refreshSeconds(fallback: 5, minimum: 2)
-        return AsyncStream { continuation in
-            let task = Task {
-                while !Task.isCancelled {
-                    let level = ThermalLevel.from(ProcessInfo.processInfo.thermalState)
-                    continuation.yield(Snapshot(value: level, freshness: .live, asOf: clock.now()))
-                    try? await Task.sleep(for: .seconds(interval))
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
+        .periodic(every: context.refreshSeconds(fallback: 5, minimum: 2), clock: context.clock) {
+            ThermalLevel.from(ProcessInfo.processInfo.thermalState)
         }
     }
 
@@ -65,14 +55,9 @@ public struct ThermalModule: NotchModule {
               previous != .critical, previous != .hot, previous != nil else { return nil }
         // Fires once per rising edge (good→hot). Each episode gets a distinct id
         // so a second overheating later isn't silently deduped away.
-        return ModuleAlert(id: "thermal-\(value)-\(Self.episodeToken())", title: "Mac is running hot",
+        return ModuleAlert(id: "thermal-\(value)-\(AlertEpisode.token())", title: "Mac is running hot",
                            body: "Thermal state: \(Self.label(value)). It may start throttling.")
     }
-
-    /// A per-event token so repeat warnings aren't dropped by the notifier's
-    /// permanent id-dedup. Seconds-resolution is unique enough — these
-    /// transitions are minutes apart.
-    static func episodeToken() -> Int { Int(Date().timeIntervalSince1970) }
 
     static func face(for level: ThermalLevel) -> PillFace {
         PillFace(text: label(level), symbolName: "thermometer",

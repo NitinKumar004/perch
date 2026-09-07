@@ -19,20 +19,9 @@ public struct SwapModule: NotchModule {
     public init() {}
 
     public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<UInt64>> {
-        let clock = context.clock
-        let interval = context.refreshSeconds(fallback: 3, minimum: 1)
-        return AsyncStream { continuation in
-            let task = Task {
-                continuation.yield(Snapshot(value: 0, freshness: .unknown, asOf: clock.now()))
-                while !Task.isCancelled {
-                    if let bytes = MemoryReader.swapUsedBytes() {
-                        continuation.yield(Snapshot(value: bytes, freshness: .live, asOf: clock.now()))
-                    }
-                    try? await Task.sleep(for: .seconds(interval))
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
+        .periodic(every: context.refreshSeconds(fallback: 3, minimum: 1),
+                  clock: context.clock, seed: 0) {
+            MemoryReader.swapUsedBytes()
         }
     }
 
@@ -43,7 +32,7 @@ public struct SwapModule: NotchModule {
     public func detail(for value: UInt64) -> [DetailRow] {
         let f = Self.face(for: value)
         return [DetailRow(id: "swap", title: "Swap used",
-                          subtitle: value == 0 ? "none — healthy" : Self.human(value),
+                          subtitle: value == 0 ? "none — healthy" : ByteFormat.size(value),
                           tint: f.tint, symbolName: "internaldrive")]
     }
 
@@ -52,14 +41,14 @@ public struct SwapModule: NotchModule {
         let heavy: UInt64 = 3 * 1024 * 1024 * 1024   // 3 GB
         guard value >= heavy, let previous, previous < heavy else { return nil }
         // Distinct id per rising edge so a later swap spike isn't deduped away.
-        return ModuleAlert(id: "swap-heavy-\(ThermalModule.episodeToken())", title: "Memory pressure is high",
-                           body: "\(Self.human(value)) of swap in use — the Mac may start to stall.")
+        return ModuleAlert(id: "swap-heavy-\(AlertEpisode.token())", title: "Memory pressure is high",
+                           body: "\(ByteFormat.size(value)) of swap in use — the Mac may start to stall.")
     }
 
     static func face(for bytes: UInt64) -> PillFace {
-        PillFace(text: bytes == 0 ? "Swap 0" : "Swap \(human(bytes))",
+        PillFace(text: bytes == 0 ? "Swap 0" : "Swap \(ByteFormat.size(bytes))",
                  symbolName: "internaldrive", tint: tint(bytes),
-                 tooltip: bytes == 0 ? "No swap in use" : "\(human(bytes)) of swap in use")
+                 tooltip: bytes == 0 ? "No swap in use" : "\(ByteFormat.size(bytes)) of swap in use")
     }
     /// Thresholds: some swap is normal; >1 GB is notable; >3 GB is heavy.
     static func tint(_ bytes: UInt64) -> Tint {
@@ -67,13 +56,5 @@ public struct SwapModule: NotchModule {
         if gb >= 3 { return .critical }
         if gb >= 1 { return .warning }
         return .good
-    }
-    /// Compact byte size, e.g. "820 MB", "2.4 GB".
-    static func human(_ bytes: UInt64) -> String {
-        let units = ["B", "KB", "MB", "GB", "TB"]
-        var value = Double(bytes); var unit = 0
-        while value >= 1024 && unit < units.count - 1 { value /= 1024; unit += 1 }
-        let text = (value >= 100 || unit <= 1) ? String(format: "%.0f", value) : String(format: "%.1f", value)
-        return "\(text) \(units[unit])"
     }
 }

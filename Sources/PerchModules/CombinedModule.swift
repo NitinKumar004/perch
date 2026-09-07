@@ -109,9 +109,12 @@ public struct CombinedModule: NotchModule {
         let segments = renders.map { FaceSegment(text: $0.pill.face.text, tint: $0.pill.face.tint) }
         let text = renders.map { $0.pill.face.text }.joined(separator: " · ")
         let tint = worstTint(renders.map { $0.pill.face.tint })
+        // If any member wants attention, surface one dot in the worst member tint.
+        let badges = renders.compactMap { $0.pill.face.badge }
+        let badge = badges.isEmpty ? nil : worstTint(badges)
         return PillFace(text: text, symbolName: nil, tint: tint,
                         tooltip: renders.map { $0.pill.face.tooltip ?? $0.pill.face.text }.joined(separator: " · "),
-                        segments: segments)
+                        segments: segments, badge: badge)
     }
 
     /// The most alarming tint present, so one red metric turns the whole pill red.

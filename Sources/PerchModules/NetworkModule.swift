@@ -51,18 +51,18 @@ public struct NetworkModule: NotchModule {
     }
 
     public func face(for value: NetThroughput, in slot: Slot) -> PillFace {
-        PillFace(text: "↓ \(NetworkReader.humanRate(value.downBytesPerSec))",
+        PillFace(text: "↓ \(ByteFormat.rate(value.downBytesPerSec))",
                  symbolName: "network", tint: .neutral,
-                 tooltip: "↓ \(NetworkReader.humanRate(value.downBytesPerSec)) · ↑ \(NetworkReader.humanRate(value.upBytesPerSec))")
+                 tooltip: "↓ \(ByteFormat.rate(value.downBytesPerSec)) · ↑ \(ByteFormat.rate(value.upBytesPerSec))")
     }
 
     public func detail(for value: NetThroughput) -> [DetailRow] {
         [
             DetailRow(id: "net-down", title: "Download",
-                      subtitle: NetworkReader.humanRate(value.downBytesPerSec),
+                      subtitle: ByteFormat.rate(value.downBytesPerSec),
                       tint: .info, symbolName: "arrow.down.circle"),
             DetailRow(id: "net-up", title: "Upload",
-                      subtitle: NetworkReader.humanRate(value.upBytesPerSec),
+                      subtitle: ByteFormat.rate(value.upBytesPerSec),
                       tint: .neutral, symbolName: "arrow.up.circle"),
         ]
     }

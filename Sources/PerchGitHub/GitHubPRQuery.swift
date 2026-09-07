@@ -31,11 +31,21 @@ public struct PRSummary: Sendable, Equatable {
     /// How many of those checks have finished — the numerator of "5/10", so a
     /// running pipeline shows real progress instead of a spinner.
     public let checksDone: Int
+    /// Unresolved review threads on the PR — the actionable "changes to address"
+    /// signal. GitHub keeps `reviewDecision` on CHANGES_REQUESTED until a
+    /// reviewer formally re-reviews, so this is what tells the author whether the
+    /// ball is in their court (threads to resolve) or the reviewer's (none left).
+    public let unresolvedThreads: Int
+    /// True when the PR has more than the fetched page of review threads (100),
+    /// so `unresolvedThreads` is a floor, not exact — the UI shows "N+" rather
+    /// than silently under-counting.
+    public let moreThreads: Bool
 
     public init(number: Int, title: String, repo: String, url: String,
                 reviewDecision: String? = nil, mergeable: String? = nil,
                 isDraft: Bool = false, checksState: String? = nil,
-                checksTotal: Int = 0, checksDone: Int = 0) {
+                checksTotal: Int = 0, checksDone: Int = 0,
+                unresolvedThreads: Int = 0, moreThreads: Bool = false) {
         self.number = number
         self.title = title
         self.repo = repo
@@ -46,6 +56,23 @@ public struct PRSummary: Sendable, Equatable {
         self.checksState = checksState
         self.checksTotal = checksTotal
         self.checksDone = checksDone
+        self.unresolvedThreads = unresolvedThreads
+        self.moreThreads = moreThreads
+    }
+
+    /// A count that honestly says "N+" when we only saw the first page of threads.
+    public var unresolvedLabel: String { moreThreads ? "\(unresolvedThreads)+" : "\(unresolvedThreads)" }
+
+    /// Approved, CI green, definitively mergeable, not a draft → ready to merge.
+    /// The positive end-state worth surfacing so you know a PR is good to land.
+    /// Requires mergeable == MERGEABLE explicitly: GitHub's `UNKNOWN` means "still
+    /// computing" (common right after a push), and `!= CONFLICTING` would let that
+    /// through as a false green that flips to CONFLICTING moments later.
+    public var isReadyToMerge: Bool {
+        reviewDecision == "APPROVED"
+            && checksState == "SUCCESS"
+            && mergeable == "MERGEABLE"
+            && !isDraft
     }
 }
 
@@ -125,6 +152,7 @@ extension GitHubAPIClient {
               ... on PullRequest {
                 number title url isDraft reviewDecision mergeable
                 repository { nameWithOwner }
+                reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage } }
                 commits(last: 1) { nodes { commit { statusCheckRollup {
                   state
                   contexts(first: 100) {
@@ -146,6 +174,7 @@ extension GitHubAPIClient {
             guard let number = node.number, let title = node.title, let url = node.url else { return nil }
             let rollup = node.commits?.nodes.first?.commit?.statusCheckRollup
             let (total, done) = GQLSearch.checkProgress(rollup?.contexts)
+            let (unresolved, moreThreads) = GQLSearch.unresolvedThreadCount(node.reviewThreads)
             return PRSummary(number: number, title: title,
                              repo: node.repository?.nameWithOwner ?? "",
                              url: url,
@@ -153,7 +182,8 @@ extension GitHubAPIClient {
                              mergeable: node.mergeable,
                              isDraft: node.isDraft ?? false,
                              checksState: rollup?.state,
-                             checksTotal: total, checksDone: done)
+                             checksTotal: total, checksDone: done,
+                             unresolvedThreads: unresolved, moreThreads: moreThreads)
         }
         return PRListObservation(total: decoded.search.issueCount, items: items, observedAt: now)
     }
@@ -165,7 +195,9 @@ private struct SearchCount: Decodable {
 }
 
 // GraphQL response shapes (nodes are heterogeneous, so every field is optional).
-private struct GQLSearch: Decodable {
+// Internal (not private) so `checkProgress` — the CI done-count logic — is unit
+// testable; it's the one piece with a real classification bug worth guarding.
+struct GQLSearch: Decodable {
     let search: Inner
     struct Inner: Decodable {
         let issueCount: Int
@@ -180,7 +212,14 @@ private struct GQLSearch: Decodable {
         let mergeable: String?
         let repository: Repo?
         let commits: Commits?
+        let reviewThreads: ReviewThreads?
         struct Repo: Decodable { let nameWithOwner: String }
+        struct ReviewThreads: Decodable {
+            let nodes: [Thread]
+            let pageInfo: PageInfo?
+            struct Thread: Decodable { let isResolved: Bool? }
+            struct PageInfo: Decodable { let hasNextPage: Bool? }
+        }
         struct Commits: Decodable { let nodes: [CommitNode] }
         struct CommitNode: Decodable { let commit: Commit? }
         struct Commit: Decodable { let statusCheckRollup: Rollup? }
@@ -197,16 +236,36 @@ private struct GQLSearch: Decodable {
     }
 
     /// Reduce the rollup's per-state counts to (total, finished) so a running
-    /// pipeline can read "5/10". A check run is finished when COMPLETED; a legacy
-    /// status context is finished when it's no longer PENDING/EXPECTED.
+    /// pipeline can read "5/22" and climb.
+    ///
+    /// Counting finished runs by state == "COMPLETED" is WRONG: GitHub's
+    /// `checkRunCountsByState` reports a finished run under its *conclusion*
+    /// (SUCCESS / FAILURE / NEUTRAL / SKIPPED / CANCELLED / TIMED_OUT / …), never
+    /// "COMPLETED" — so that filter counts ~nothing and the bar sits at 0/22 then
+    /// jumps to pass/fail. Instead count "done" as total minus whatever is still
+    /// in flight (the handful of genuinely-pending states).
     static func checkProgress(_ contexts: Node.Contexts?) -> (total: Int, done: Int) {
         guard let contexts else { return (0, 0) }
-        let runsDone = (contexts.checkRunCountsByState ?? [])
-            .filter { $0.state == "COMPLETED" }
+        let runsInFlight = (contexts.checkRunCountsByState ?? [])
+            .filter { runningStates.contains($0.state) }
             .reduce(0) { $0 + $1.count }
-        let statusesDone = (contexts.statusContextCountsByState ?? [])
-            .filter { $0.state != "PENDING" && $0.state != "EXPECTED" }
+        let statusesInFlight = (contexts.statusContextCountsByState ?? [])
+            .filter { $0.state == "PENDING" || $0.state == "EXPECTED" }
             .reduce(0) { $0 + $1.count }
-        return (contexts.totalCount, min(contexts.totalCount, runsDone + statusesDone))
+        let done = contexts.totalCount - runsInFlight - statusesInFlight
+        return (contexts.totalCount, Swift.max(0, Swift.min(contexts.totalCount, done)))
+    }
+
+    /// Check-run states that mean "not finished yet". Everything else (a
+    /// conclusion) counts as done.
+    private static let runningStates: Set<String> = ["QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUESTED"]
+
+    /// Count unresolved review threads from the fetched page, and whether there
+    /// were more than that page (so the caller can show "N+" honestly). A thread
+    /// with a null `isResolved` is treated as NOT-unresolved (conservative — we
+    /// only badge what GitHub clearly says is open).
+    static func unresolvedThreadCount(_ threads: Node.ReviewThreads?) -> (count: Int, more: Bool) {
+        let count = (threads?.nodes ?? []).filter { $0.isResolved == false }.count
+        return (count, threads?.pageInfo?.hasNextPage ?? false)
     }
 }

@@ -16,14 +16,19 @@ public struct PillFace: Equatable, Sendable {
     /// their own status colour). `text`/`tint` remain the single-colour fallback
     /// (used for the menu-bar status icon and any non-segment context).
     public let segments: [FaceSegment]?
+    /// An optional small "attention" dot after the text, in this tint — a calm,
+    /// glanceable "you have something to act on" signal that avoids shouting a
+    /// raw number (the exact figure belongs in the tooltip / panel). nil = none.
+    public let badge: Tint?
 
     public init(text: String, symbolName: String? = nil, tint: Tint = .neutral,
-                tooltip: String? = nil, segments: [FaceSegment]? = nil) {
+                tooltip: String? = nil, segments: [FaceSegment]? = nil, badge: Tint? = nil) {
         self.text = text
         self.symbolName = symbolName
         self.tint = tint
         self.tooltip = tooltip
         self.segments = segments
+        self.badge = badge
     }
 }
 

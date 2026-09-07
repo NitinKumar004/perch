@@ -9,14 +9,12 @@ import EventKit
 public struct NextEvent: Sendable, Equatable {
     public var title: String
     public var startsAt: Date
-    public var isAllDay: Bool
     /// nil = nothing upcoming; used to render a calm "clear" pill.
-    public static let none = NextEvent(title: "", startsAt: .distantFuture, isAllDay: false)
+    public static let none = NextEvent(title: "", startsAt: .distantFuture)
     public var hasEvent: Bool { self != NextEvent.none }
-    public init(title: String, startsAt: Date, isAllDay: Bool) {
+    public init(title: String, startsAt: Date) {
         self.title = title
         self.startsAt = startsAt
-        self.isAllDay = isAllDay
     }
 }
 
@@ -141,7 +139,7 @@ struct SystemCalendarReader: CalendarReading {
             .filter { $0.endDate > now }
             .sorted { $0.startDate < $1.startDate }
         guard let event = upcoming.first else { return nil }
-        return NextEvent(title: event.title ?? "Event", startsAt: event.startDate, isAllDay: event.isAllDay)
+        return NextEvent(title: event.title ?? "Event", startsAt: event.startDate)
         #else
         return nil
         #endif

@@ -43,6 +43,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var updateItem: NSMenuItem?
     private var pendingUpdate: UpdateInfo?
     private var updateTimer: Timer?
+    /// In-flight guards so a double-click or a timer firing during a manual check
+    /// can't start two concurrent downloads/installs racing on the same bundle.
+    private var isCheckingForUpdate = false
+    private var isInstallingUpdate = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let isFirstRun = !FileManager.default.fileExists(atPath: ConfigStore.defaultFileURL.path)
@@ -96,7 +100,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Ask GitHub Releases whether a newer Perch exists. On success it updates
     /// the menu item and (once) notifies; `userInitiated` also opens the page.
     private func checkForUpdates(userInitiated: Bool) {
+        guard !isCheckingForUpdate, !isInstallingUpdate else { return }
+        isCheckingForUpdate = true
         Task { [updateChecker, notifier] in
+            defer { self.isCheckingForUpdate = false }
             guard let info = await updateChecker.check() else {
                 if userInitiated {
                     self.updateItem?.title = "Perch is up to date"
@@ -136,6 +143,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the swap fails.
     private func installUpdate(_ info: UpdateInfo) {
         guard let zip = URL(string: info.zipURL) else { return }
+        guard !isInstallingUpdate else { return }   // one install at a time
+        isInstallingUpdate = true
         updateItem?.title = "Downloading \(info.version)…"
         model.updateStatus = .downloading(version: info.version)
         Task {
@@ -144,6 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .relaunching:
                 break   // app is terminating; the swap script relaunches it
             case .unsupported, .failed:
+                self.isInstallingUpdate = false   // stayed alive; allow a retry
                 self.updateItem?.title = "Open \(info.version) release page"
                 self.model.updateStatus = .releasePage(version: info.version)
                 if let page = URL(string: info.pageURL) { NSWorkspace.shared.open(page) }
@@ -164,6 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let config = configStore.load()
         notifier.configure(config.global)
         configWatcher?.markApplied()   // our own read isn't an "external" change
+        model.palette = (Theme(rawValue: config.global.theme) ?? .system).palette
         windowController?.setPosition(HUDPosition(rawValue: config.hudPosition) ?? .flank)
         guard let preset = config.current else { return }
 

@@ -37,7 +37,10 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
     // Decode with defaults so older config files (no hudPosition / global) load.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        // A file with no schemaVersion is a pre-versioning (v1) file — treat it
+        // as v1 so it MIGRATES, rather than throwing (which would be read as
+        // corruption and wipe the user's presets).
+        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
         activePreset = try c.decode(String.self, forKey: .activePreset)
         presets = try c.decode([String: Preset].self, forKey: .presets)
         hudPosition = try c.decodeIfPresent(String.self, forKey: .hudPosition) ?? "flank"
@@ -60,16 +63,22 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
     /// A "HH:MM-HH:MM" window during which notifications are suppressed, or nil
     /// for none. May wrap past midnight (e.g. "22:00-08:00").
     public var quietHours: String?
+    /// The selected colour theme, stored as an opaque id (e.g. "midnight"). The
+    /// UI layer maps it to a palette; config stays a lower layer and never knows
+    /// the concrete colours. Defaults to "system" (the original look).
+    public var theme: String
 
-    public init(autoOpenOnRed: Bool = false, quietHours: String? = nil) {
+    public init(autoOpenOnRed: Bool = false, quietHours: String? = nil, theme: String = "system") {
         self.autoOpenOnRed = autoOpenOnRed
         self.quietHours = quietHours
+        self.theme = theme
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         autoOpenOnRed = try c.decodeIfPresent(Bool.self, forKey: .autoOpenOnRed) ?? false
         quietHours = try c.decodeIfPresent(String.self, forKey: .quietHours)
+        theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? "system"
     }
 
     /// Parse `quietHours` into (startMinuteOfDay, endMinuteOfDay), or nil if

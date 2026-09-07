@@ -17,19 +17,24 @@ public struct PanelActions: Sendable {
     /// Handles files dropped onto the panel (the file shelf). Returns true if the
     /// drop was accepted, so the panel can show its highlight only when useful.
     public var onDropFiles: @MainActor ([URL]) -> Bool
+    /// Reorder panel modules by drag: the new full order of panel-item ids. The
+    /// shell reorders the live rows and persists the order to the active preset.
+    public var onReorder: @MainActor (_ orderedIDs: [String]) -> Void
 
     public init(onConnect: @escaping @MainActor () -> Void = {},
                 onSettings: @escaping @MainActor () -> Void = {},
                 onReload: @escaping @MainActor () -> Void = {},
                 onQuit: @escaping @MainActor () -> Void = {},
                 onAction: @escaping @MainActor (String) -> Void = { _ in },
-                onDropFiles: @escaping @MainActor ([URL]) -> Bool = { _ in false }) {
+                onDropFiles: @escaping @MainActor ([URL]) -> Bool = { _ in false },
+                onReorder: @escaping @MainActor ([String]) -> Void = { _ in }) {
         self.onConnect = onConnect
         self.onSettings = onSettings
         self.onReload = onReload
         self.onQuit = onQuit
         self.onAction = onAction
         self.onDropFiles = onDropFiles
+        self.onReorder = onReorder
     }
 }
 
@@ -42,6 +47,9 @@ struct PanelView: View {
     let isConnected: Bool
     let actions: PanelActions
     @State private var isDropTargeted = false
+    @State private var draggingID: String?      // the section being dragged
+    @State private var order: [String] = []     // working display order (live during a drag)
+    @State private var expanded: Set<String> = []  // sections showing their full list
 
     var body: some View {
         VStack(spacing: 0) {
@@ -71,6 +79,41 @@ struct PanelView: View {
             loadDroppedURLs(providers)
             return true
         }
+        // Releasing a section anywhere over the panel commits the live order,
+        // even if the cursor isn't over another row at that instant.
+        .dropDestination(for: String.self) { _, _ in commitReorder(); return true }
+        .onAppear { order = items.map(\.id) }
+        .onChange(of: items.map(\.id)) { _, ids in
+            // Adopt an external order change (config reload) when not mid-drag.
+            if draggingID == nil { order = ids }
+        }
+    }
+
+    /// Items in the current working order, with any not-yet-tracked rows appended.
+    private var orderedItems: [PanelItem] {
+        guard !order.isEmpty else { return items }
+        let byID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var result = order.compactMap { byID[$0] }
+        let known = Set(order)
+        result.append(contentsOf: items.filter { !known.contains($0.id) })
+        return result
+    }
+
+    /// Slide the dragged section to sit over `targetID`, live, so the other rows
+    /// open a gap as the cursor moves — the premium reorder feel.
+    private func liveMove(over targetID: String) {
+        guard let moving = draggingID, moving != targetID else { return }
+        let current = order.isEmpty ? items.map(\.id) : order
+        let next = PanelReorder.reordered(current, moving: moving, target: targetID)
+        guard next != current else { return }
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { order = next }
+    }
+
+    /// Persist whatever order the live drag settled on.
+    private func commitReorder() {
+        guard draggingID != nil else { return }
+        draggingID = nil
+        actions.onReorder(order.isEmpty ? items.map(\.id) : order)
     }
 
     /// Resolve dropped item providers to file URLs off the main actor, then hand
@@ -87,41 +130,8 @@ struct PanelView: View {
     @ViewBuilder
     private var rows: some View {
         VStack(spacing: 0) {
-            ForEach(items) { item in
-                VStack(spacing: 0) {
-                    // Header: module name (+ what it's watching) + its pill.
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(item.title)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.85))
-                            if let subtitle = item.subtitle {
-                                Text(subtitle)
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(.white.opacity(0.45))
-                                    .lineLimit(1)
-                            }
-                        }
-                        Spacer(minLength: 12)
-                        PillView(headerPill(for: item))
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.top, 9)
-                    .padding(.bottom, item.detail.isEmpty ? 9 : 4)
-
-                    // Detail rows. A row that merely restates the header (a
-                    // single-metric module's own summary) collapses to just its
-                    // new payload — the graph, and a subtitle the pill doesn't
-                    // already say — so nothing is stated twice. Genuinely
-                    // informative rows (a meeting name, a PR, a list) render full.
-                    ForEach(item.detail) { row in
-                        if isRedundantSummary(row, item: item) {
-                            summaryStrip(row, pillText: item.content.face.text)
-                        } else {
-                            detailRow(row)
-                        }
-                    }
-                }
+            ForEach(orderedItems) { item in
+                section(item)
                 Divider().overlay(.white.opacity(0.06))
             }
             if items.isEmpty {
@@ -131,6 +141,99 @@ struct PanelView: View {
                     .padding(.vertical, 14)
             }
         }
+    }
+
+    /// One module's section (header + its detail rows). Reorderable sections can
+    /// be dragged by their header; as a drag passes over other sections they
+    /// slide to open a gap, and the dragged one dims until it's dropped.
+    @ViewBuilder
+    private func section(_ item: PanelItem) -> some View {
+        let reorderable = isReorderable(item)
+        let isDragging = draggingID == item.id
+        VStack(spacing: 0) {
+            // Header: module name (+ what it watches) and its pill.
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                    if let subtitle = item.subtitle {
+                        Text(subtitle)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.45))
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 12)
+                PillView(headerPill(for: item))
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 9)
+            .padding(.bottom, item.detail.isEmpty ? 9 : 4)
+            .contentShape(Rectangle())
+            // The header is the drag handle — dragging it never fights the
+            // tappable links/buttons that live in the detail rows below.
+            .ifReorderable(reorderable) { $0.onDrag {
+                draggingID = item.id
+                return NSItemProvider(object: item.id as NSString)
+            } }
+
+            // Detail rows. A row that merely restates the header (a single-metric
+            // module's own summary) collapses to just its new payload — the
+            // graph, and a subtitle the pill doesn't already say — so nothing is
+            // stated twice. Genuinely informative rows (a meeting name, a PR, a
+            // list) render full. A long list shows a short preview with a toggle.
+            let isExpanded = expanded.contains(item.id)
+            let shown = PanelCollapse.visibleCount(total: item.detail.count, expanded: isExpanded)
+            ForEach(Array(item.detail.prefix(shown))) { row in
+                if isRedundantSummary(row, item: item) {
+                    summaryStrip(row, pillText: item.content.face.text)
+                } else {
+                    detailRow(row)
+                }
+            }
+            if PanelCollapse.isCollapsible(total: item.detail.count) {
+                expandToggle(id: item.id, total: item.detail.count, expanded: isExpanded)
+            }
+        }
+        .opacity(isDragging ? 0.35 : 1)
+        // Passing a drag over this section slides the dragged one into its place.
+        .ifReorderable(reorderable) { $0.dropDestination(for: String.self) { _, _ in
+            commitReorder(); return true
+        } isTargeted: { targeted in
+            if targeted { liveMove(over: item.id) }
+        } }
+    }
+
+    /// The "Show all N / Show less" control for a long list, with an up/down
+    /// chevron. Collapsed by default so a big list never dominates the panel.
+    private func expandToggle(id: String, total: Int, expanded: Bool) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                if expanded { self.expanded.remove(id) } else { self.expanded.insert(id) }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                Text(expanded ? "Show less" : "Show all \(total)")
+                    .font(.system(size: 11, weight: .medium))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.white.opacity(0.5))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Only modules the user explicitly placed in the panel are reorderable —
+    /// their id is "<module>#<index>". Rows auto-surfaced from a pill (id
+    /// "<module>#pill-N") aren't in the saved panel list, so they stay put.
+    private func isReorderable(_ item: PanelItem) -> Bool {
+        guard let suffix = item.id.split(separator: "#").last else { return false }
+        return Int(suffix) != nil
     }
 
     /// The header pill with any leading token that duplicates the section title
@@ -284,5 +387,14 @@ struct PanelView: View {
                 .background(Capsule().fill(.white.opacity(0.08)))
         }
         .buttonStyle(.plain)
+    }
+}
+
+private extension View {
+    /// Apply `transform` only when `condition`, so auto-surfaced rows stay free
+    /// of drag/drop modifiers while the reorder call sites remain readable.
+    @ViewBuilder func ifReorderable(_ condition: Bool,
+                                    _ transform: (Self) -> some View) -> some View {
+        if condition { transform(self) } else { self }
     }
 }

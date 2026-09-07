@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import PerchCore
 import PerchModuleKit
 import PerchModules
@@ -14,6 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = NotchViewModel()
     private var windowController: NotchWindowController?
     private var binder: SlotBinder?
+    /// Panel-item id → the config binding it came from, for drag-to-reorder.
+    /// Only explicitly-placed panel modules are recorded (auto-surfaced pill rows
+    /// aren't reorderable). Rebuilt every applyConfig.
+    private var panelBindings: [String: SlotBinding] = [:]
     private var statusItem: NSStatusItem?
     private var connectItem: NSMenuItem?
     private var disconnectItem: NSMenuItem?
@@ -50,7 +55,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onReload: { [weak self] in self?.applyConfig() },
             onQuit: { [weak self] in self?.confirmQuit() },
             onAction: { [weak self] action in self?.handleAction(action) },
-            onDropFiles: { [weak self] urls in self?.handleDroppedFiles(urls) ?? false }
+            onDropFiles: { [weak self] urls in self?.handleDroppedFiles(urls) ?? false },
+            onReorder: { [weak self] orderedIDs in self?.reorderPanel(orderedIDs: orderedIDs) }
         )
         let controller = NotchWindowController(model: model, onActivate: { [weak self] in
             self?.handleActivate()
@@ -153,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.leftPill = nil
         model.rightPill = nil
         model.panelItems = []   // reset so re-applying never duplicates rows
+        panelBindings = [:]     // rebuilt below as explicit panel rows are seeded
 
         let config = configStore.load()
         notifier.configure(config.global)
@@ -198,7 +205,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Seed panel rows in config order, then start one shared poll per group.
         for (index, binding) in preset.panel.enumerated() {
             if let module = factory.makeModule(for: binding) {
-                binder.seedPanelItem(id: "\(binding.module)#\(index)", module: module)
+                let id = "\(binding.module)#\(index)"
+                binder.seedPanelItem(id: id, module: module)
+                panelBindings[id] = binding   // this row is reorderable
             }
         }
         for (groupIndex, k) in order.enumerated() {
@@ -217,6 +226,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               pills: group.pills, panelIDs: group.panelIDs)
         }
         self.binder = binder
+    }
+
+    /// Apply a drag reorder: sync the live rows to the order the panel settled
+    /// on, then persist it to the active preset — without a full reload, so polls
+    /// keep running and nothing flashes.
+    private func reorderPanel(orderedIDs: [String]) {
+        let currentOrder = model.panelItems.map(\.id)
+        guard orderedIDs != currentOrder else { return }
+
+        let byID = Dictionary(model.panelItems.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var items = orderedIDs.compactMap { byID[$0] }
+        // Keep any rows the panel didn't mention (shouldn't happen) so a reorder
+        // can never drop a live row.
+        let mentioned = Set(orderedIDs)
+        items.append(contentsOf: model.panelItems.filter { !mentioned.contains($0.id) })
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+            model.panelItems = items
+        }
+
+        // Persist the explicit rows in their new order. Bail if any lost its
+        // binding, so a reorder can never silently drop a module from the config.
+        let newPanel = items.compactMap { panelBindings[$0.id] }
+        var config = configStore.load()
+        let key = config.presets[config.activePreset] != nil
+            ? config.activePreset : (config.presets.keys.sorted().first ?? "default")
+        guard let preset = config.presets[key], newPanel.count == preset.panel.count else { return }
+        config.presets[key]?.panel = newPanel
+        try? configStore.save(config)
+        configWatcher?.markApplied()   // our own write — don't bounce back as a reload
     }
 
     /// A pill was clicked: toggle the detail panel. The panel's own footer holds

@@ -166,7 +166,7 @@ struct PanelView: View {
                     }
                 }
                 Spacer(minLength: 12)
-                PillView(headerPill(for: item))
+                headerTrailing(for: item)
             }
             .padding(.horizontal, 14)
             .padding(.top, 9)
@@ -186,11 +186,20 @@ struct PanelView: View {
             // list) render full. A long list shows a short preview with a toggle.
             let isExpanded = expanded.contains(item.id)
             let shown = PanelCollapse.visibleCount(total: item.detail.count, expanded: isExpanded)
-            ForEach(Array(item.detail.prefix(shown))) { row in
-                if isRedundantSummary(row, item: item) {
-                    summaryStrip(row, pillText: item.content.face.text)
-                } else {
-                    detailRow(row)
+            if item.content.face.segments != nil {
+                // A Combined section: its members are distinct metrics, so NEVER
+                // collapse them to nameless charts (the de-dup rule that matches a
+                // row title against the pill text misfires here, because the pill
+                // text is every metric concatenated). Show each with its name +
+                // value, laid out two per line so the section stays compact.
+                combinedGrid(Array(item.detail.prefix(shown)))
+            } else {
+                ForEach(Array(item.detail.prefix(shown))) { row in
+                    if isRedundantSummary(row, item: item) {
+                        summaryStrip(row, pillText: item.content.face.text)
+                    } else {
+                        detailRow(row)
+                    }
                 }
             }
             if PanelCollapse.isCollapsible(total: item.detail.count) {
@@ -204,6 +213,66 @@ struct PanelView: View {
         } isTargeted: { targeted in
             if targeted { liveMove(over: item.id) }
         } }
+    }
+
+    /// A Combined section's metrics, two per line, each as its own little block:
+    /// icon + name, the value, and — for CPU / memory and other trending metrics
+    /// — the trend graph. Blocks keep every metric named and readable at a
+    /// glance; the panel scrolls when there are more than fit.
+    @ViewBuilder
+    private func combinedGrid(_ rows: [DetailRow]) -> some View {
+        LazyVGrid(
+            columns: [GridItem(.flexible(), spacing: 8, alignment: .top),
+                      GridItem(.flexible(), spacing: 8, alignment: .top)],
+            alignment: .leading, spacing: 8
+        ) {
+            ForEach(rows) { row in metricBlock(row) }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 2)
+        .padding(.bottom, 8)
+    }
+
+    /// One metric block: name on top, then the value and its graph. The value
+    /// wraps to a second line rather than truncating, so it's always readable.
+    private func metricBlock(_ row: DetailRow) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                if let symbol = row.symbolName {
+                    Image(systemName: symbol)
+                        .font(.system(size: 11))
+                        .foregroundStyle(tintColor(row.tint))
+                }
+                Text(row.title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(palette.ink(0.9))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            HStack(alignment: .bottom, spacing: 6) {
+                if let subtitle = row.subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(palette.ink(0.6))
+                        .lineLimit(2)                       // wraps, never cut off
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 4)
+                if let points = row.sparkline, points.count > 1 {
+                    Sparkline(points: points, color: tintColor(row.tint))
+                        .frame(width: 52, height: 18)
+                } else if let progress = row.progress {
+                    MiniBar(value: progress, color: tintColor(row.tint))
+                        .frame(width: 52, height: 5)
+                }
+            }
+        }
+        .padding(9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(palette.ink(0.05))
+        )
     }
 
     /// The "Show all N / Show less" control for a long list, with an up/down
@@ -235,6 +304,23 @@ struct PanelView: View {
     private func isReorderable(_ item: PanelItem) -> Bool {
         guard let suffix = item.id.split(separator: "#").last else { return false }
         return Int(suffix) != nil
+    }
+
+    /// The trailing element of a section header. A Combined module's pill is a
+    /// long segmented run (every metric + its bars) that would overflow the
+    /// panel width here — and its members are already itemised as rows below —
+    /// so a combined section shows just a compact overall-status dot instead of
+    /// the full pill. Every other module shows its normal (short) header pill.
+    @ViewBuilder
+    private func headerTrailing(for item: PanelItem) -> some View {
+        if item.content.face.segments != nil {
+            Circle()
+                .fill(tintColor(item.content.face.tint))
+                .frame(width: 8, height: 8)
+                .help(item.content.face.tooltip ?? "")
+        } else {
+            PillView(headerPill(for: item))
+        }
     }
 
     /// The header pill with any leading token that duplicates the section title

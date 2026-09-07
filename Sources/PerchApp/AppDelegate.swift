@@ -181,13 +181,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 binder.seedPanelItem(id: "\(binding.module)#\(index)", module: module)
             }
         }
-        for k in order {
+        for (groupIndex, k) in order.enumerated() {
             guard var group = groups[k], let module = factory.makeModule(for: group.binding) else { continue }
             // A "detail-first" module (clipboard, file shelf, PR queue) placed
             // only in a pill would be a dead end — the pill shows just a count.
-            // Also surface it in the panel so its contents stay reachable.
+            // Also surface it in the panel so its contents stay reachable. The id
+            // includes the group index so two same-type pills (e.g. PRs for two
+            // different repos) don't collide on one auto-seed id.
             if module.descriptor.detailFirst, !group.pills.isEmpty, group.panelIDs.isEmpty {
-                let autoID = "\(group.binding.module)#pill"
+                let autoID = "\(group.binding.module)#pill-\(groupIndex)"
                 binder.seedPanelItem(id: autoID, module: module)
                 group.panelIDs.append(autoID)
             }

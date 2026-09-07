@@ -117,18 +117,19 @@ public struct Preset: Codable, Equatable, Sendable {
     }
 
     /// Return a tidied copy of the layout:
-    /// - the **panel** has no duplicate modules (the same module can't be listed
-    ///   twice), keeping the first of any repeat;
-    /// - the **left and right pills never hold the *same* module** (that would be
-    ///   redundant) — if the right pill matches the left, it's cleared.
+    /// - the **panel** drops only *identical* rows — same module AND same settings.
+    ///   The same module type with different settings is a distinct instance and
+    ///   is kept (e.g. Pull requests for two different repos).
+    /// - the **right pill is cleared only if it's identical to the left** (same
+    ///   module and settings) — redundant. Two same-type-but-differently-configured
+    ///   pills are allowed.
     ///
-    /// A pill *may* hold a module that is also in the panel — that's intended: you
-    /// pin a panel module to a pill and it stays in the panel too.
+    /// A pill may hold a module that is also in the panel — that's intended.
     public func normalizedSlots() -> Preset {
-        var seen = Set<String>()
-        let dedupedPanel = panel.filter { seen.insert($0.module).inserted }
+        var seen = Set<SlotBinding>()
+        let dedupedPanel = panel.filter { seen.insert($0).inserted }
         var right = rightPill
-        if let left = leftPill, right?.module == left.module { right = nil }
+        if let left = leftPill, right == left { right = nil }
         return Preset(leftPill: leftPill, rightPill: right, panel: dedupedPanel)
     }
 }
@@ -136,7 +137,7 @@ public struct Preset: Codable, Equatable, Sendable {
 /// A module placed in a slot, plus the settings that module needs. Settings are
 /// free-form strings so each module owns its own keys without the config type
 /// having to know them.
-public struct SlotBinding: Codable, Equatable, Sendable {
+public struct SlotBinding: Codable, Equatable, Hashable, Sendable {
     /// The module's stable id, e.g. `"github.builds"`.
     public var module: String
     /// Module-specific settings, e.g. `["repo": "owner/name", "branch": "main"]`.

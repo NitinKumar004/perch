@@ -14,14 +14,18 @@ public struct PRState: Sendable, Equatable {
     /// User-chosen display toggles.
     public var showChecks: Bool
     public var showReview: Bool
+    /// The scoped repo couldn't be read (private repo Perch isn't installed on).
+    /// Distinct from a genuine zero, so the pill can say so honestly.
+    public var noAccess: Bool
 
     public init(count: Int, items: [PRSummary], repoScope: String? = nil,
-                showChecks: Bool = true, showReview: Bool = true) {
+                showChecks: Bool = true, showReview: Bool = true, noAccess: Bool = false) {
         self.count = count
         self.items = items
         self.repoScope = repoScope
         self.showChecks = showChecks
         self.showReview = showReview
+        self.noAccess = noAccess
     }
 
     public static let empty = PRState(count: 0, items: [], repoScope: nil)
@@ -52,7 +56,9 @@ public struct GitHubPRsModule: NotchModule {
         let clock = context.clock
         let client = client
         let queue = PRQueue(rawValue: context.settings["queue"] ?? "") ?? .reviewRequested
-        let repo = context.settings["repo"]
+        // One repo, several (comma/space-separated), or blank = all accessible.
+        let repos = Self.parseRepos(context.settings["repo"] ?? "")
+        let scopeLabel = repos.isEmpty ? nil : repos.joined(separator: ", ")
         let interval = context.refreshSeconds(fallback: 90, minimum: 30)
         let limit = context.int("limit", fallback: 8, minimum: 1, maximum: 25)
         let showChecks = context.bool("showChecks", fallback: true)
@@ -60,7 +66,7 @@ public struct GitHubPRsModule: NotchModule {
 
         return AsyncStream { continuation in
             let store = VersionedStore<String, PRState>(clock: clock)
-            let key = "\(queue.rawValue)#\(repo ?? "*")"
+            let key = "\(queue.rawValue)#\(repos.joined(separator: "+").isEmpty ? "*" : repos.joined(separator: "+"))"
             var lastError: String?   // so a repeating error is logged once, not every poll
             var failures = 0
             let backoff = Backoff(base: 15, cap: 300)
@@ -71,11 +77,11 @@ public struct GitHubPRsModule: NotchModule {
                 while !Task.isCancelled {
                     var nextDelay: Double = interval
                     do {
-                        let observation = try await client.pullRequestList(queue: queue, repo: repo, limit: limit, now: clock.now())
+                        let observation = try await client.pullRequestList(queue: queue, repos: repos, limit: limit, now: clock.now())
                         if lastError != nil { print("[perch] pr poll \(key): recovered"); lastError = nil }
                         failures = 0
                         let state = PRState(count: observation.total, items: observation.items,
-                                            repoScope: repo, showChecks: showChecks, showReview: showReview)
+                                            repoScope: scopeLabel, showChecks: showChecks, showReview: showReview)
                         let accepted = await store.apply(state, forKey: key, version: observation.observedAt)
                         if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
                             continuation.yield(snapshot)
@@ -95,8 +101,8 @@ public struct GitHubPRsModule: NotchModule {
                         // "needs access" hint instead of an error loop, and stop
                         // hammering it (it won't change until the user acts).
                         if case GitHubAuthError.http(let status) = error,
-                           (400..<500).contains(status), let repo {
-                            let noAccess = PRState(count: 0, items: [], repoScope: repo)
+                           (400..<500).contains(status), let scope = scopeLabel {
+                            let noAccess = PRState(count: 0, items: [], repoScope: scope, noAccess: true)
                             continuation.yield(Snapshot(value: noAccess, freshness: .unknown, asOf: clock.now()))
                             nextDelay = backoff.cap
                         } else if let stale = await store.snapshot(forKey: key, ttl: 0) {
@@ -116,6 +122,11 @@ public struct GitHubPRsModule: NotchModule {
     }
 
     public func face(for value: PRState, in slot: Slot) -> PillFace {
+        if value.noAccess {
+            // Can't see the scoped repo — say so, don't mimic a calm "0 PRs".
+            return PillFace(text: "PR ?", symbolName: "lock", tint: .warning,
+                            tooltip: "No access to \(value.repoScope ?? "that repo") — tap to grant Perch access")
+        }
         if value.count == 0 {
             return PillFace(text: "PR", symbolName: "checkmark.seal", tint: .neutral,
                             tooltip: "No PRs waiting on you")
@@ -137,9 +148,24 @@ public struct GitHubPRsModule: NotchModule {
     }
 
     public func contextLabel(_ context: ModuleContext) -> String? {
-        let scope = context.settings["repo"].flatMap { $0.isEmpty ? nil : $0 } ?? "all repos"
+        let repos = Self.parseRepos(context.settings["repo"] ?? "")
+        let scope: String
+        switch repos.count {
+        case 0:  scope = "all repos"
+        case 1:  scope = repos[0]
+        default: scope = "\(repos.count) repos"
+        }
         let which = (context.settings["queue"] == "author") ? "opened by me" : "my review"
         return "\(scope) · \(which)"
+    }
+
+    /// Parse the `repo` setting into a list: one repo, a comma/space-separated
+    /// set of repos to combine, or empty = all accessible repos. Only entries
+    /// that look like "owner/name" are kept.
+    static func parseRepos(_ raw: String) -> [String] {
+        raw.split(whereSeparator: { $0 == "," || $0 == " " || $0 == "\n" })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.contains("/") && !$0.isEmpty }
     }
 
     public func detail(for value: PRState) -> [DetailRow] {

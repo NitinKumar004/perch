@@ -78,7 +78,7 @@ public enum ModuleCatalog {
                                     SettingOption(value: "review-requested", label: "PRs waiting on my review"),
                                     SettingOption(value: "author", label: "PRs I opened"),
                                   ]),
-                    ModuleSetting(key: "repo", label: "Repository (optional)", placeholder: "owner/name — blank = all repos"),
+                    ModuleSetting(key: "repo", label: "Repositories (optional)", placeholder: "owner/a, owner/b — blank = all repos"),
                     ModuleSetting(key: "showChecks", label: "Show CI status", placeholder: "", defaultValue: "true", kind: .toggle),
                     ModuleSetting(key: "showReview", label: "Show review status", placeholder: "", defaultValue: "true", kind: .toggle),
                     ModuleSetting(key: "limit", label: "How many to list", placeholder: "8", defaultValue: "8"),

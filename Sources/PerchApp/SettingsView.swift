@@ -327,40 +327,16 @@ struct SettingsView: View {
         }
     }
 
-    /// Which slot a picker is for — used to hide only the modules that would
-    /// truly clash. Pills only exclude *each other* (so left ≠ right); a panel
-    /// row only excludes the *other* panel rows. A module in the panel can still
-    /// be pinned to a pill — that overlap is allowed.
+    /// Which slot a picker is for (kept for call-site clarity; every module is
+    /// selectable in every slot now — you can watch the same module type in more
+    /// than one place, e.g. Pull requests for two different repos).
     private enum SlotKind: Equatable { case left, right, panel(Int) }
 
-    private func clashingModuleIDs(for kind: SlotKind) -> Set<String> {
-        switch kind {
-        case .left:  return right.moduleID.isEmpty ? [] : [right.moduleID]
-        case .right: return left.moduleID.isEmpty ? [] : [left.moduleID]
-        case .panel(let index):
-            var ids = Set<String>()
-            for (j, editor) in panel.enumerated() where j != index && !editor.moduleID.isEmpty {
-                ids.insert(editor.moduleID)
-            }
-            return ids
-        }
-    }
-
-    /// Where a clashing module is already placed — so a disabled item can explain
-    /// itself ("in the right pill") instead of just vanishing from the list.
-    private func inUseReason(_ id: String, for kind: SlotKind) -> String {
-        switch kind {
-        case .left:  return "in right pill"
-        case .right: return "in left pill"
-        case .panel: return "already in the panel"
-        }
-    }
-
     /// A module picker whose choices are grouped by what they need, so the
-    /// local-vs-GitHub distinction is obvious *before* you pick. Only modules
-    /// that would genuinely clash for this slot are hidden (see `SlotKind`).
+    /// local-vs-GitHub distinction is obvious *before* you pick. Every module is
+    /// offered in every slot — duplicates of a configurable module (a second
+    /// repo, another URL, another port) are exactly what makes the HUD yours.
     private func modulePicker(editor: Binding<SlotEditor>, kind: SlotKind) -> some View {
-        let taken = clashingModuleIDs(for: kind).subtracting([editor.wrappedValue.moduleID])
         let selected = catalog.first { $0.id == editor.wrappedValue.moduleID }
         // A Menu (not a Picker) so the closed control shows only the chosen name,
         // while each item explains itself — "Name — what it does" — so you know
@@ -372,16 +348,8 @@ struct SettingsView: View {
                 if !entries.isEmpty {
                     Section(group.label) {
                         ForEach(entries) { entry in
-                            // Show every module. A clashing one stays visible but
-                            // disabled, with a note saying where it already lives —
-                            // so it never looks "missing".
-                            if taken.contains(entry.id) {
-                                Button("\(Self.pickerLabel(for: entry))  (\(inUseReason(entry.id, for: kind)))") {}
-                                    .disabled(true)
-                            } else {
-                                Button(Self.pickerLabel(for: entry)) {
-                                    editor.wrappedValue.moduleID = entry.id
-                                }
+                            Button(Self.pickerLabel(for: entry)) {
+                                editor.wrappedValue.moduleID = entry.id
                             }
                         }
                     }
@@ -531,17 +499,18 @@ struct SettingsView: View {
 
     /// Pin a panel module (with its settings) to the left or right pill. It stays
     /// in the panel — the pill is an additional place it shows — and replaces
-    /// whatever that pill held. If the other pill already holds this same module,
-    /// that pill is cleared so a module is never pinned to both pills.
+    /// whatever that pill held. If the OTHER pill already holds this exact same
+    /// binding (module + settings), that pill is cleared so an identical thing
+    /// isn't pinned to both pills. A same-type-but-different-config pill is fine.
     private func promote(_ index: Int, toLeft: Bool) {
         guard panel.indices.contains(index) else { return }
         let item = panel[index]   // copy — the panel row stays put
         if toLeft {
             left = item
-            if right.moduleID == item.moduleID { right = SlotEditor(binding: nil) }
+            if right.toBinding() == item.toBinding() { right = SlotEditor(binding: nil) }
         } else {
             right = item
-            if left.moduleID == item.moduleID { left = SlotEditor(binding: nil) }
+            if left.toBinding() == item.toBinding() { left = SlotEditor(binding: nil) }
         }
     }
 

@@ -243,7 +243,7 @@ private func observation(_ fetch: GitHubAPIClient.BuildFetch) -> BuildObservatio
 @Test func pullRequestCountReadsTotalCount() async throws {
     let http = FakeHTTPClient([json(#"{"total_count":2,"incomplete_results":false,"items":[]}"#)])
     let client = GitHubAPIClient(http: http, auth: connectedAuth())
-    let obs = try await client.pullRequestCount(queue: .reviewRequested, repo: nil, now: epoch)
+    let obs = try await client.pullRequestCount(queue: .reviewRequested, repos: [], now: epoch)
     #expect(obs.count == 2)
     #expect(obs.observedAt == epoch)
 }
@@ -251,11 +251,20 @@ private func observation(_ fetch: GitHubAPIClient.BuildFetch) -> BuildObservatio
 @Test func pullRequestCountScopesToRepoInQuery() async throws {
     let http = FakeHTTPClient([json(#"{"total_count":0,"items":[]}"#)])
     let client = GitHubAPIClient(http: http, auth: connectedAuth())
-    _ = try await client.pullRequestCount(queue: .authored, repo: "acme/api", now: epoch)
+    _ = try await client.pullRequestCount(queue: .authored, repos: ["acme/api"], now: epoch)
 
     let sent = await http.requests.first
     let url = sent?.url.absoluteString ?? ""
     #expect(url.contains("search/issues"))
     #expect(url.contains("author:@me") || url.contains("author%3A@me") || url.contains("author"))
     #expect(url.contains("acme/api") || url.contains("acme%2Fapi"))
+}
+
+@Test func prQueryCombinesMultipleRepos() {
+    // Several repos combine into one query with a repo: qualifier each — GitHub
+    // returns the combined count + merged list. Blank = all accessible repos.
+    let multi = GitHubAPIClient.prQuery(queue: .authored, repos: ["acme/api", "acme/web"])
+    #expect(multi == "is:pr is:open author:@me repo:acme/api repo:acme/web")
+    let all = GitHubAPIClient.prQuery(queue: .reviewRequested, repos: [])
+    #expect(all == "is:pr is:open review-requested:@me")
 }

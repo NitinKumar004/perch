@@ -88,26 +88,27 @@ private func tempConfigURL() -> URL {
     #expect(loaded.schemaVersion == LayoutConfig.currentVersion)  // migrated forward
 }
 
-@Test func normalizedSlotsAllowsPanelPillOverlapButNotBothPills() {
-    // A module pinned to the left pill AND kept in the panel stays in BOTH —
-    // that overlap is intentional. Panel duplicates collapse to one.
-    let p = Preset(
-        leftPill: SlotBinding(module: "system.cpu"),
-        rightPill: nil,
-        panel: [SlotBinding(module: "system.cpu"), SlotBinding(module: "system.cpu"),
-                SlotBinding(module: "system.memory")])
+@Test func normalizedSlotsDedupesOnlyIdenticalBindings() {
+    // Panel drops only IDENTICAL rows (same module + settings). The same module
+    // type with different settings is a distinct instance and is kept — e.g. Pull
+    // requests for two different repos.
+    let prA = SlotBinding(module: "github.prs", settings: ["repo": "acme/a"])
+    let prB = SlotBinding(module: "github.prs", settings: ["repo": "acme/b"])
+    let p = Preset(leftPill: SlotBinding(module: "system.cpu"), rightPill: nil,
+                   panel: [prA, prB, prA, SlotBinding(module: "system.memory")])
     let n = p.normalizedSlots()
-    #expect(n.leftPill?.module == "system.cpu")             // pill kept
-    #expect(n.panel.map(\.module) == ["system.cpu", "system.memory"]) // panel deduped, cpu kept
-    // The same module can't sit in BOTH pills — the right is cleared.
-    let bothPills = Preset(leftPill: SlotBinding(module: "system.clock"),
-                           rightPill: SlotBinding(module: "system.clock"))
-    #expect(bothPills.normalizedSlots().rightPill == nil)
-    #expect(bothPills.normalizedSlots().leftPill?.module == "system.clock")
-    // Distinct pills are both preserved.
-    let distinct = Preset(leftPill: SlotBinding(module: "system.clock"),
-                          rightPill: SlotBinding(module: "github.prs"))
-    #expect(distinct.normalizedSlots() == distinct)
+    // prA appears once (its exact duplicate dropped), prB kept — two PR instances.
+    #expect(n.panel == [prA, prB, SlotBinding(module: "system.memory")])
+    #expect(n.leftPill?.module == "system.cpu")
+
+    // Two pills of the same TYPE but different config are both allowed.
+    let twoRepos = Preset(leftPill: prA, rightPill: prB)
+    #expect(twoRepos.normalizedSlots() == twoRepos)
+
+    // Only an IDENTICAL right pill is cleared.
+    let identical = Preset(leftPill: prA, rightPill: prA)
+    #expect(identical.normalizedSlots().rightPill == nil)
+    #expect(identical.normalizedSlots().leftPill == prA)
 }
 
 @Test func quietHoursWindowHandlesMidnightWrap() {

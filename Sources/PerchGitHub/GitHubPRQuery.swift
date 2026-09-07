@@ -65,14 +65,22 @@ public enum PRQueue: String, Sendable {
 }
 
 extension GitHubAPIClient {
-    /// Count the authenticated user's open PRs in `queue`, optionally scoped to
-    /// one `repo` ("owner/name"). Uses the search API, whose `total_count` is
-    /// exactly the glanceable number the pill needs.
-    public func pullRequestCount(queue: PRQueue, repo: String?, now: Date) async throws -> PRCountObservation {
+    /// Build a PR search query, scoped to zero, one, or many repos. GitHub search
+    /// accepts multiple `repo:` qualifiers (OR'd), so several repos combine into a
+    /// single count + a single merged list — no double-counting, one request.
+    /// An empty `repos` searches every repo the user can access.
+    static func prQuery(queue: PRQueue, repos: [String]) -> String {
+        var q = "is:pr is:open \(queue.rawValue):@me"
+        for repo in repos where !repo.isEmpty { q += " repo:\(repo)" }
+        return q
+    }
+
+    /// Count the authenticated user's open PRs in `queue`, across `repos`
+    /// (empty = all accessible repos). `total_count` is the glanceable number.
+    public func pullRequestCount(queue: PRQueue, repos: [String], now: Date) async throws -> PRCountObservation {
         let token = try await validToken()
 
-        var q = "is:pr is:open \(queue.rawValue):@me"
-        if let repo { q += " repo:\(repo)" }
+        let q = Self.prQuery(queue: queue, repos: repos)
 
         var components = URLComponents(
             url: GitHubConfig.apiBaseURL.appendingPathComponent("search/issues"),
@@ -105,10 +113,9 @@ extension GitHubAPIClient {
     }
 
     /// The queue's total plus the first `limit` items with review + merge status,
-    /// via GraphQL (one request), for the panel's PR list.
-    public func pullRequestList(queue: PRQueue, repo: String?, limit: Int = 8, now: Date) async throws -> PRListObservation {
-        var q = "is:pr is:open \(queue.rawValue):@me"
-        if let repo { q += " repo:\(repo)" }
+    /// via GraphQL (one request), across `repos` (empty = all accessible repos).
+    public func pullRequestList(queue: PRQueue, repos: [String], limit: Int = 8, now: Date) async throws -> PRListObservation {
+        let q = Self.prQuery(queue: queue, repos: repos)
 
         let gql = """
         query($q: String!, $n: Int!) {

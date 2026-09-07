@@ -71,12 +71,24 @@ private func series(_ v: Int) -> VitalSeries { VitalSeries(current: v, history: 
     #expect(m.notification(for: .failing, previous: .passing) == nil)  // FakeBuild has no override
 }
 
+@Test func prParseReposHandlesOneManyOrBlank() {
+    #expect(GitHubPRsModule.parseRepos("") == [])                          // blank = all repos
+    #expect(GitHubPRsModule.parseRepos("acme/api") == ["acme/api"])        // one
+    #expect(GitHubPRsModule.parseRepos("acme/api, acme/web") == ["acme/api", "acme/web"])
+    #expect(GitHubPRsModule.parseRepos("acme/api acme/web") == ["acme/api", "acme/web"]) // spaces
+    #expect(GitHubPRsModule.parseRepos("garbage, acme/api") == ["acme/api"]) // needs a slash
+}
+
 @Test func prsFaceGoesQuietAtZero() {
     let m = GitHubPRsModule(client: .init(auth: .init(
         flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore())))
     #expect(m.face(for: PRState(count: 0, items: []), in: .rightPill).tint == .neutral)
     #expect(m.face(for: PRState(count: 3, items: []), in: .rightPill).tint == .warning)
     #expect(m.face(for: PRState(count: 3, items: []), in: .rightPill).text == "3")
+    // A no-access scoped repo must NOT look like a calm "0 PRs".
+    let na = m.face(for: PRState(count: 0, items: [], repoScope: "acme/private", noAccess: true), in: .rightPill)
+    #expect(na.text == "PR ?")
+    #expect(na.tint == .warning)
 }
 
 @Test func prsDetailListsPRsWithLinks() {

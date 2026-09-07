@@ -76,7 +76,7 @@ private func tempConfigURL() -> URL {
     let url = tempConfigURL()
     let store = ConfigStore(fileURL: url)
     var config = LayoutConfig(activePreset: "default", presets: ["default": Preset()])
-    config.global = GlobalSettings(autoOpenOnRed: true, quietHours: "22:00-08:00", theme: "nord")
+    config.global = GlobalSettings(autoOpenOnRed: true, quietHours: "22:00-08:00", theme: "nord", notchBanner: false)
     try store.save(config)
     #expect(store.load().global == config.global)
 

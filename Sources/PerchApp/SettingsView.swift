@@ -23,6 +23,7 @@ struct SettingsView: View {
     @State private var autoOpenOnRed: Bool
     @State private var quietHours: String
     @State private var theme: String
+    @State private var notchBanner: Bool
     @State private var config: LayoutConfig       // the whole layout being edited
     @State private var activePreset: String       // the preset key currently shown
     @State private var presetNameField: String    // editable name of the active preset
@@ -74,6 +75,7 @@ struct SettingsView: View {
         _autoOpenOnRed = State(initialValue: config.global.autoOpenOnRed)
         _quietHours = State(initialValue: config.global.quietHours ?? "")
         _theme = State(initialValue: config.global.theme)
+        _notchBanner = State(initialValue: config.global.notchBanner)
     }
 
     var body: some View {
@@ -312,6 +314,9 @@ struct SettingsView: View {
             Text("Behaviour").font(.system(size: 13, weight: .semibold))
             Toggle("Open the panel automatically when something goes red",
                    isOn: $autoOpenOnRed)
+                .toggleStyle(.checkbox).font(.system(size: 12))
+            Toggle("Show alerts as a banner in the notch",
+                   isOn: $notchBanner)
                 .toggleStyle(.checkbox).font(.system(size: 12))
             HStack(spacing: 8) {
                 Text("Quiet hours").font(.system(size: 12)).frame(width: 90, alignment: .leading)
@@ -598,7 +603,7 @@ struct SettingsView: View {
         let trimmed = quietHours.trimmingCharacters(in: .whitespaces)
         out.global = GlobalSettings(autoOpenOnRed: autoOpenOnRed,
                                     quietHours: trimmed.isEmpty ? nil : trimmed,
-                                    theme: theme)
+                                    theme: theme, notchBanner: notchBanner)
         onSave(out)
     }
 

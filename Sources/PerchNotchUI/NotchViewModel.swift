@@ -33,6 +33,9 @@ public final class NotchViewModel {
     public var notchWidth: CGFloat = 0
     /// Where the HUD sits — drives both the window frame and the pill layout.
     public var hudPosition: HUDPosition = .flank
+    /// The transient alert currently shown in the notch, or nil. Driven by the
+    /// BannerPresenter; it renders in-place in the pill row (no window resize).
+    public var banner: BannerAlert?
 
     public init() {}
 }

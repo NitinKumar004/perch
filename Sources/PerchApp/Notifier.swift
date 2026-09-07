@@ -68,22 +68,31 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     /// Post an alert unless one with the same id has already been shown — or
     /// we're inside quiet hours, in which case it's remembered but never posted.
-    func post(_ alert: ModuleAlert) {
-        guard !seen.contains(alert.id) else { return }
+    /// The outcome of trying to post an alert — lets the caller mirror it to the
+    /// in-notch banner only when it was actually delivered (not a duplicate, not
+    /// during quiet hours).
+    enum AlertOutcome { case delivered, duplicate, quiet }
+
+    @discardableResult
+    func post(_ alert: ModuleAlert) -> AlertOutcome {
+        guard !seen.contains(alert.id) else { return .duplicate }
         remember(alert.id)
         let comps = Calendar.current.dateComponents([.hour, .minute], from: Date())
         let minute = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-        guard !global.isQuiet(minuteOfDay: minute) else { return }
-        guard isAvailable else { return }
+        guard !global.isQuiet(minuteOfDay: minute) else { return .quiet }
 
-        let content = UNMutableNotificationContent()
-        content.title = alert.title
-        content.body = alert.body
-        content.sound = .default
-        if let url = alert.url { content.userInfo["url"] = url }
-
-        let request = UNNotificationRequest(identifier: alert.id, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
+        // The macOS banner needs a real bundle; the in-notch banner (the caller's
+        // job on `.delivered`) does not — so report delivered either way.
+        if isAvailable {
+            let content = UNMutableNotificationContent()
+            content.title = alert.title
+            content.body = alert.body
+            content.sound = .default
+            if let url = alert.url { content.userInfo["url"] = url }
+            let request = UNNotificationRequest(identifier: alert.id, content: content, trigger: nil)
+            UNUserNotificationCenter.current().add(request)
+        }
+        return .delivered
     }
 
     private func remember(_ id: String) {

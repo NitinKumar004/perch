@@ -16,6 +16,9 @@ final class SlotBinder {
     private let notifier: Notifier
     private let onCritical: () -> Void
     private let onStatusChange: () -> Void
+    /// Show a transient in-notch banner for an alert that was actually delivered
+    /// (deduped, not during quiet hours). Carries the severity tint.
+    private let onBanner: (BannerAlert) -> Void
     private var tasks: [Task<Void, Never>] = []
 
     /// - Parameters:
@@ -25,12 +28,14 @@ final class SlotBinder {
     ///     the menu-bar icon to reflect the worst current state.
     init(model: NotchViewModel, context: ModuleContext, notifier: Notifier,
          onCritical: @escaping () -> Void = {},
-         onStatusChange: @escaping () -> Void = {}) {
+         onStatusChange: @escaping () -> Void = {},
+         onBanner: @escaping (BannerAlert) -> Void = { _ in }) {
         self.model = model
         self.baseContext = context
         self.notifier = notifier
         self.onCritical = onCritical
         self.onStatusChange = onStatusChange
+        self.onBanner = onBanner
     }
 
     /// Seed a panel row so ordering is stable before the first value arrives.
@@ -52,7 +57,7 @@ final class SlotBinder {
         let context = ModuleContext(clock: baseContext.clock, settings: settings)
         let opensOnCritical = module.descriptor.opensPanelOnCritical
         let stream = module.renderStream(context, slot: .panel)  // slot-independent face
-        let task = Task { @MainActor [model, notifier, onCritical, onStatusChange] in
+        let task = Task { @MainActor [model, notifier, onCritical, onStatusChange, onBanner] in
             // nil until the first *live* render establishes a baseline. Only
             // real observations count: a module yields a `.unknown` placeholder
             // seed before its first poll, so if we baselined on the seed, the
@@ -63,7 +68,11 @@ final class SlotBinder {
             // transition DURING the session auto-opens.
             var tracker = AutoOpenTracker(opensOnCritical: opensOnCritical)
             for await render in stream {
-                if let alert = render.alert { notifier.post(alert) }
+                if let alert = render.alert, notifier.post(alert) == .delivered,
+                   !model.isPanelOpen {   // the open panel already shows everything
+                    onBanner(BannerAlert(id: alert.id, title: alert.title, body: alert.body,
+                                         tint: render.pill.face.tint, url: alert.url))
+                }
                 if tracker.observe(isCritical: render.pill.face.tint == .critical,
                                    isLive: render.pill.freshness.isTrustworthy) {
                     onCritical()

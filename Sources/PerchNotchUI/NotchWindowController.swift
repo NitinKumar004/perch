@@ -91,6 +91,8 @@ public final class NotchWindowController {
         let metrics = NotchGeometry.metrics(for: screen)
         let frameRect = metrics.screenFrame
         let collapsedHeight = max(metrics.notchHeight, 32)
+        // The transient alert banner shows in-place in the pill row, so only the
+        // panel grows the window.
         let height = model.isPanelOpen ? collapsedHeight + panelDrop : collapsedHeight
 
         let width: CGFloat

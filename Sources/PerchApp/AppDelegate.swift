@@ -15,6 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = NotchViewModel()
     private var windowController: NotchWindowController?
     private var binder: SlotBinder?
+    private var bannerPresenter: BannerPresenter?
+    /// Whether alerts also show as a transient in-notch banner (user setting).
+    private var showNotchBanner = true
     /// Panel-item id → the config binding it came from, for drag-to-reorder.
     /// Only explicitly-placed panel modules are recorded (auto-surfaced pill rows
     /// aren't reorderable). Rebuilt every applyConfig.
@@ -68,6 +71,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.show()
         windowController = controller
 
+        bannerPresenter = BannerPresenter(model: model)
+
         applyConfig()
         refreshConnectItem()
 
@@ -117,11 +122,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if userInitiated {
                 self.installUpdate(info)
             } else {
-                notifier.post(ModuleAlert(
+                let alert = ModuleAlert(
                     id: "perch-update-\(info.version)",
                     title: "Perch \(info.version) is available",
                     body: "Open Perch’s panel → “Update to \(info.version)” to install.",
-                    url: info.pageURL))
+                    url: info.pageURL)
+                if notifier.post(alert) == .delivered, self.showNotchBanner, !self.model.isPanelOpen {
+                    self.bannerPresenter?.show(BannerAlert(
+                        id: alert.id, title: alert.title, body: alert.body, tint: .accent, url: alert.url))
+                }
             }
         }
     }
@@ -179,6 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let preset = config.current else { return }
 
         let autoOpenOnRed = config.global.autoOpenOnRed
+        showNotchBanner = config.global.notchBanner
         let factory = ModuleFactory(apiClient: GitHubAPIClient(auth: auth),
                                     timerController: timerController,
                                     clipboardController: clipboardController,
@@ -188,7 +198,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     guard autoOpenOnRed else { return }
                                     self?.autoOpenPanel()
                                 },
-                                onStatusChange: { [weak self] in self?.refreshStatusIcon() })
+                                onStatusChange: { [weak self] in self?.refreshStatusIcon() },
+                                onBanner: { [weak self] banner in
+                                    guard let self, self.showNotchBanner else { return }
+                                    self.bannerPresenter?.show(banner)
+                                })
 
         // Group every placement (pills + panel rows) by (module id + settings)
         // so identical configs share one poll instead of each fetching.
@@ -274,7 +288,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleActivate() {
         model.isPanelOpen.toggle()
         windowController?.setPanelOpen(model.isPanelOpen)
-        if model.isPanelOpen { refreshConnectedFlag() }
+        if model.isPanelOpen {
+            refreshConnectedFlag()
+            bannerPresenter?.dismissCurrent()   // the panel supersedes a transient banner
+        }
     }
 
     /// Tint the menu-bar bird to the worst current state — red if anything is

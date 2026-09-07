@@ -67,11 +67,16 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
     /// UI layer maps it to a palette; config stays a lower layer and never knows
     /// the concrete colours. Defaults to "system" (the original look).
     public var theme: String
+    /// Whether alerts also show as a transient banner in the notch (in addition
+    /// to the macOS notification). Defaults on.
+    public var notchBanner: Bool
 
-    public init(autoOpenOnRed: Bool = false, quietHours: String? = nil, theme: String = "system") {
+    public init(autoOpenOnRed: Bool = false, quietHours: String? = nil,
+                theme: String = "system", notchBanner: Bool = true) {
         self.autoOpenOnRed = autoOpenOnRed
         self.quietHours = quietHours
         self.theme = theme
+        self.notchBanner = notchBanner
     }
 
     public init(from decoder: Decoder) throws {
@@ -79,6 +84,7 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
         autoOpenOnRed = try c.decodeIfPresent(Bool.self, forKey: .autoOpenOnRed) ?? false
         quietHours = try c.decodeIfPresent(String.self, forKey: .quietHours)
         theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? "system"
+        notchBanner = try c.decodeIfPresent(Bool.self, forKey: .notchBanner) ?? true
     }
 
     /// Parse `quietHours` into (startMinuteOfDay, endMinuteOfDay), or nil if

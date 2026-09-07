@@ -20,7 +20,11 @@ public struct NotchRootView: View {
     public var body: some View {
         VStack(spacing: 8) {
             Group {
-                if model.hudPosition == .flank {
+                // A transient alert takes over the pill row IN PLACE (same bar,
+                // no card hanging below the notch), then reverts to the pills.
+                if let banner = model.banner, !model.isPanelOpen {
+                    bannerRow(banner)
+                } else if model.hudPosition == .flank {
                     flankRow
                 } else {
                     groupedRow
@@ -39,6 +43,7 @@ public struct NotchRootView: View {
         .animation(.easeInOut(duration: 0.2), value: model.leftPill)
         .animation(.easeInOut(duration: 0.2), value: model.rightPill)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: model.isPanelOpen)
+        .animation(.spring(response: 0.34, dampingFraction: 0.8), value: model.banner)
     }
 
     /// Pills pushed to opposite edges to flank the physical notch.
@@ -60,6 +65,33 @@ public struct NotchRootView: View {
             if let right = model.rightPill { pill(right) }
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// The alert shown in-place in the pill row. It takes over whichever pill is
+    /// *bigger* (more text → more room), and the other pill stays put — so a pill
+    /// is never yanked from its place. Grouped/below layouts centre the banner.
+    @ViewBuilder
+    private func bannerRow(_ banner: BannerAlert) -> some View {
+        let capsule = BannerView(banner) { onActivate() }
+            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+        if model.hudPosition == .flank {
+            let bannerOnRight = BannerPlacement.showOnRight(left: model.leftPill, right: model.rightPill)
+            HStack(spacing: 0) {
+                Group {
+                    if bannerOnRight { if let left = model.leftPill { pill(left) } }
+                    else { capsule }
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                Color.clear.frame(width: max(model.notchWidth, 12)).allowsHitTesting(false)
+                Group {
+                    if bannerOnRight { capsule }
+                    else { if let right = model.rightPill { pill(right) } }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
+            capsule.frame(maxWidth: .infinity, alignment: .center)
+        }
     }
 
     private func pill(_ content: PillContent) -> some View {

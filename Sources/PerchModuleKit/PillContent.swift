@@ -11,12 +11,29 @@ public struct PillFace: Equatable, Sendable {
     public let symbolName: String?
     public let tint: Tint
     public let tooltip: String?
+    /// Optional per-segment colouring: when set, the shell renders each segment
+    /// in its OWN tint (e.g. a combined pill where CPU, RAM and network each keep
+    /// their own status colour). `text`/`tint` remain the single-colour fallback
+    /// (used for the menu-bar status icon and any non-segment context).
+    public let segments: [FaceSegment]?
 
-    public init(text: String, symbolName: String? = nil, tint: Tint = .neutral, tooltip: String? = nil) {
+    public init(text: String, symbolName: String? = nil, tint: Tint = .neutral,
+                tooltip: String? = nil, segments: [FaceSegment]? = nil) {
         self.text = text
         self.symbolName = symbolName
         self.tint = tint
         self.tooltip = tooltip
+        self.segments = segments
+    }
+}
+
+/// One coloured piece of a multi-part pill face.
+public struct FaceSegment: Equatable, Sendable {
+    public let text: String
+    public let tint: Tint
+    public init(text: String, tint: Tint) {
+        self.text = text
+        self.tint = tint
     }
 }
 

@@ -25,9 +25,13 @@ public struct PillView: View {
                     .frame(width: 13, height: 13)   // fixed icon box; the glyph is
                     .clipped()                       // centred and can't spill onto
             }                                        // the text (no .fixedSize here)
-            Text(content.face.text)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .lineLimit(1)
+            pillText
+                // The flank layout animates leftPill/rightPill changes (a nice
+                // fade when a pill appears or its tint shifts). But a metric's
+                // *text* changes every tick — network throughput especially — and
+                // an animated text swap crossfades old over new, so the two
+                // strings overlap for the fade's duration. Swap text instantly.
+                .contentTransition(.identity)
             if let staleLabel {
                 Text(staleLabel)
                     .font(.system(size: 9, weight: .regular, design: .monospaced))
@@ -59,8 +63,30 @@ public struct PillView: View {
     static let pillHeight: CGFloat = 22
     static var pillRadius: CGFloat { 6 }
 
-    private var tintColor: Color {
-        switch content.face.tint {
+    private var tintColor: Color { Self.color(for: content.face.tint) }
+
+    /// The pill's text — either a single string, or, for a combined pill, one
+    /// coloured segment per metric separated by a muted dot so each keeps its
+    /// own status colour.
+    @ViewBuilder private var pillText: some View {
+        if let segments = content.face.segments, !segments.isEmpty {
+            HStack(spacing: 5) {
+                ForEach(Array(segments.enumerated()), id: \.offset) { i, seg in
+                    if i > 0 { Text("·").foregroundStyle(.white.opacity(0.3)) }
+                    Text(seg.text).foregroundStyle(Self.color(for: seg.tint))
+                }
+            }
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .lineLimit(1)
+        } else {
+            Text(content.face.text)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .lineLimit(1)
+        }
+    }
+
+    static func color(for tint: Tint) -> Color {
+        switch tint {
         case .neutral:  return Color(white: 0.9)
         case .good:     return Color(red: 0.25, green: 0.73, blue: 0.31)
         case .warning:  return Color(red: 0.89, green: 0.70, blue: 0.25)

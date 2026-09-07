@@ -64,6 +64,38 @@ import PerchModuleKit
     #expect(m.face(for: .down, in: .leftPill).tint == .critical)
 }
 
+// MARK: - Combined module (user-selected metrics folded into one)
+
+@Test func combinedEnabledMembersFromToggles() {
+    // Defaults: CPU + memory on, rest off.
+    #expect(CombinedModule.enabledMemberIDs(from: [:]) == ["system.cpu", "system.memory"])
+    // Explicit selection, in display order.
+    let ids = CombinedModule.enabledMemberIDs(from: [
+        "incCPU": "false", "incMemory": "true", "incThermal": "true", "incDisk": "true"])
+    #expect(ids == ["system.memory", "system.thermal", "system.disk"])
+    // Nothing selected → empty (factory then yields no module).
+    #expect(CombinedModule.enabledMemberIDs(from: [
+        "incCPU": "false", "incMemory": "false"]) == [])
+}
+
+@Test func combinedWorstTintAndMergedFace() {
+    #expect(CombinedModule.worstTint([.good, .warning, .good]) == .warning)
+    #expect(CombinedModule.worstTint([.good, .good]) == .good)
+    #expect(CombinedModule.worstTint([.warning, .critical]) == .critical)
+    #expect(CombinedModule.worstTint([]) == .neutral)
+    // Merged pill joins values and takes the worst colour.
+    func render(_ text: String, _ tint: Tint) -> ModuleRender {
+        ModuleRender(pill: PillContent(face: PillFace(text: text, tint: tint), freshness: .live, asOf: Date()), detail: [])
+    }
+    let face = CombinedModule.mergedFace([render("CPU 27%", .good), render("RAM 61%", .warning)])
+    #expect(face.text == "CPU 27% · RAM 61%")
+    #expect(face.tint == .warning)   // worst-of, for the menu-bar status icon
+    // Each metric keeps its OWN colour via segments (not one shared tint).
+    #expect(face.segments?.map(\.tint) == [.good, .warning])
+    #expect(face.segments?.map(\.text) == ["CPU 27%", "RAM 61%"])
+    #expect(CombinedModule.mergedFace([]).text == "—")
+}
+
 // MARK: - System safety modules (thermal / swap / load / disk)
 
 @Test func thermalMapsStateToTintAndAlerts() {

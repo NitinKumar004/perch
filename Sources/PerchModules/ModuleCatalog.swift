@@ -104,6 +104,15 @@ public enum ModuleCatalog {
                     Self.refreshSetting(placeholder: "20"),
                 ]),
             CatalogEntry(
+                id: CombinedModule.descriptor.id,
+                name: CombinedModule.descriptor.name,
+                summary: CombinedModule.descriptor.summary,
+                requiresConnection: false,
+                settings: CombinedModule.combinable().map { m in
+                    ModuleSetting(key: m.key, label: m.label, placeholder: "",
+                                  defaultValue: m.on ? "true" : "false", kind: .toggle)
+                } + [Self.refreshSetting(placeholder: "2")]),
+            CatalogEntry(
                 id: VitalsModule.descriptor.id,
                 name: VitalsModule.descriptor.name,
                 summary: VitalsModule.descriptor.summary,

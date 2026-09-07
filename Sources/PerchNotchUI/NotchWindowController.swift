@@ -17,8 +17,11 @@ public final class NotchWindowController {
     private let panel: NSPanel
     private let model: NotchViewModel
 
-    private let pillZone: CGFloat = 220
-    private let groupedWidth: CGFloat = 280
+    // Generous zone on each side of the notch so a wide pill (e.g. a Combined
+    // "CPU 32% · RAM 61% · ↓ 25 KB/s") never runs under the notch and clips.
+    // Empty areas of the panel pass clicks through, so a wider zone is safe.
+    private let pillZone: CGFloat = 400
+    private let groupedWidth: CGFloat = 320
     private let panelDrop: CGFloat = 320
     private var position: HUDPosition = .flank
 
@@ -95,9 +98,10 @@ public final class NotchWindowController {
         let originY: CGFloat
         switch position {
         case .flank:
-            // Pills flank the physical notch, flush in the menu bar.
+            // Pills flank the physical notch, flush in the menu bar. Clamp the
+            // window to the screen so a very wide pill never runs off the edge.
             model.notchWidth = metrics.notchWidth
-            width = metrics.notchWidth + pillZone * 2
+            width = min(frameRect.width, metrics.notchWidth + pillZone * 2)
             originX = frameRect.midX - width / 2
             originY = frameRect.maxY - height
         case .right:

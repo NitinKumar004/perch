@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var configWatcher: ConfigWatcher?
     private var updateItem: NSMenuItem?
     private var pendingUpdate: UpdateInfo?
+    private var updateTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let isFirstRun = !FileManager.default.fileExists(atPath: ConfigStore.defaultFileURL.path)
@@ -47,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onConnect: { [weak self] in self?.startConnect() },
             onSettings: { [weak self] in self?.openSettings() },
             onReload: { [weak self] in self?.applyConfig() },
-            onQuit: { NSApp.terminate(nil) },
+            onQuit: { [weak self] in self?.confirmQuit() },
             onAction: { [weak self] action in self?.handleAction(action) },
             onDropFiles: { [weak self] urls in self?.handleDroppedFiles(urls) ?? false }
         )
@@ -67,11 +68,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         watcher.start()
         configWatcher = watcher
 
-        // First launch: greet the user and point them at Connect + Settings.
-        if isFirstRun { showWelcome() }
+        // First launch: greet the user, and default to launch-at-login so a
+        // background agent with no Dock icon comes back on its own after a
+        // reboot. The Settings toggle still lets them turn it off — we only set
+        // this default once, on the very first run.
+        if isFirstRun {
+            LoginItem.setEnabled(true)
+            showWelcome()
+        }
 
-        // Quietly check for a newer release in the background.
+        // Check for a newer release now, then every 6 hours — so a long-running
+        // Mac gets the "Update available" prompt the same day without a restart.
         checkForUpdates(userInitiated: false)
+        let timer = Timer(timeInterval: 6 * 60 * 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkForUpdates(userInitiated: false) }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        updateTimer = timer
     }
 
     /// Ask GitHub Releases whether a newer Perch exists. On success it updates
@@ -280,6 +293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         configWatcher?.stop()
+        updateTimer?.invalidate()
         binder?.cancelAll()
     }
 
@@ -326,11 +340,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateItem = update
 
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit Perch",
-                     action: #selector(NSApplication.terminate(_:)),
-                     keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit Perch", action: #selector(quitClicked), keyEquivalent: "q")
+        quit.target = self
+        menu.addItem(quit)
         item.menu = menu
         statusItem = item
+    }
+
+    @objc private func quitClicked() { confirmQuit() }
+
+    /// Confirm before quitting — a background agent has no Dock icon, so without
+    /// this a user who quits can't tell how to get Perch back. The dialog spells
+    /// out that reopening is a Spotlight search away.
+    private func confirmQuit() {
+        // The detail panel floats at status-bar window level, so it would draw on
+        // top of the modal alert and hide its title/message. Close it first so the
+        // dialog is fully visible.
+        if model.isPanelOpen {
+            model.isPanelOpen = false
+            windowController?.setPanelOpen(false)
+        }
+        let alert = NSAlert()
+        alert.messageText = "Quit Perch?"
+        alert.informativeText = "Perch will stop watching your builds and your Mac.\n\nTo reopen it later: press ⌘-Space, type “Perch”, and hit Return."
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)   // bring the dialog forward for an accessory app
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSApp.terminate(nil)
+        }
     }
 
     /// Open layout.json in the user's editor. Loading first guarantees the file

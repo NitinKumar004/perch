@@ -181,6 +181,23 @@ private func firstRender(_ module: AnyNotchModule,
     #expect(disk?.detail.first?.subtitle?.contains("free") == true)
 }
 
+@Test func e2e_combinedFoldsCPUAndMemoryIntoOnePill() async {
+    // A Combined module with CPU + memory ticked, driven through the real factory
+    // and stream, must produce one pill showing both (folded from live readers).
+    let factory = ModuleFactory(apiClient: stubbedClient(),
+                                timerController: TimerController(),
+                                clipboardController: ClipboardController(),
+                                fileShelfController: FileShelfController())
+    let m = factory.makeModule(for: SlotBinding(module: "system.combined",
+                                                settings: ["incCPU": "true", "incMemory": "true"]))!
+    let render = await firstRender(m) { r in
+        r.pill.face.text.contains("CPU") && r.pill.face.text.contains("RAM")
+    }
+    #expect(render != nil)
+    // Panel shows each member as its own row (mini dashboard).
+    #expect((render?.detail.count ?? 0) >= 2)
+}
+
 @Test func e2e_networkAndVitalsProduceLiveValues() async {
     let net = await firstRender(AnyNotchModule(NetworkModule()), settings: ["refreshSeconds": "1"]) {
         $0.pill.freshness == .live

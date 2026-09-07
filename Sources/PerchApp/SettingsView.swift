@@ -373,6 +373,7 @@ struct SettingsView: View {
     static func pickerLabel(for entry: CatalogEntry) -> String {
         let tag: String
         switch entry.id {
+        case "system.combined":     tag = "several in one"
         case "system.cpu":          tag = "usage %"
         case "system.memory":       tag = "RAM in use"
         case "system.network":      tag = "up / down"

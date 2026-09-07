@@ -45,6 +45,14 @@ public struct ModuleFactory: Sendable {
         case VitalsModule.descriptor.id:
             return AnyNotchModule(VitalsModule())
 
+        case CombinedModule.descriptor.id:
+            // Build the ticked member modules and fold them together. Only
+            // glanceable modules are combinable (no nesting, no list modules).
+            let members = CombinedModule.enabledMemberIDs(from: binding.settings)
+                .compactMap { makeModule(for: SlotBinding(module: $0)) }
+            guard !members.isEmpty else { return nil }
+            return AnyNotchModule(CombinedModule(members: members))
+
         case NetworkModule.descriptor.id:
             return AnyNotchModule(NetworkModule())
 

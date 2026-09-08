@@ -154,6 +154,29 @@ private func firstRender(_ module: AnyNotchModule,
     #expect(text.filter { $0 == ":" }.count == 2)                // hh:mm:ss
 }
 
+@Test func e2e_prModuleNotifiesOnStatusChanges() {
+    let m = GitHubPRsModule(client: stubbedClient())
+    func pr(_ n: Int, mergeable: String = "MERGEABLE", reviews: Int = 0) -> PRSummary {
+        PRSummary(number: n, title: "feat \(n)", repo: "o/r", url: "https://x/\(n)",
+                  mergeable: mergeable, checksState: "SUCCESS", reviewCount: reviews)
+    }
+    // First observation is a silent baseline.
+    #expect(m.notification(for: PRState(count: 1, items: [pr(1)]), previous: nil) == nil)
+    // A PR that gains a merge conflict → an alert naming it.
+    let conflict = m.notification(
+        for: PRState(count: 1, items: [pr(1, mergeable: "CONFLICTING")]),
+        previous: PRState(count: 1, items: [pr(1)]))
+    #expect(conflict?.title == "#1 feat 1")
+    #expect(conflict?.body == "now has merge conflicts")
+    #expect(conflict?.id.hasPrefix("pr-o/r#1-conflicts-") == true)
+    // Two PRs change at once → the worst leads, the rest summarised.
+    let many = m.notification(
+        for: PRState(count: 2, items: [pr(1, mergeable: "CONFLICTING"), pr(2, reviews: 1)]),
+        previous: PRState(count: 2, items: [pr(1), pr(2)]))
+    #expect(many?.title == "#1 feat 1")
+    #expect(many?.body.contains("+1 more") == true)
+}
+
 @Test func e2e_githubNotificationsSummarisesABurst() {
     let m = GitHubNotificationsModule(client: stubbedClient())
     func thr(_ id: String) -> NotificationThread {

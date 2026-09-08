@@ -40,12 +40,20 @@ public struct PRSummary: Sendable, Equatable {
     /// so `unresolvedThreads` is a floor, not exact — the UI shows "N+" rather
     /// than silently under-counting.
     public let moreThreads: Bool
+    /// Total formal reviews submitted (Approve / Request-changes / Comment) — lets
+    /// the UI say "commented" when someone reviewed without a decision, and lets a
+    /// rising count between polls flag a NEW review.
+    public let reviewCount: Int
+    /// Total conversation comments on the PR — a rising count flags new discussion
+    /// even when nobody submitted a formal review.
+    public let commentCount: Int
 
     public init(number: Int, title: String, repo: String, url: String,
                 reviewDecision: String? = nil, mergeable: String? = nil,
                 isDraft: Bool = false, checksState: String? = nil,
                 checksTotal: Int = 0, checksDone: Int = 0,
-                unresolvedThreads: Int = 0, moreThreads: Bool = false) {
+                unresolvedThreads: Int = 0, moreThreads: Bool = false,
+                reviewCount: Int = 0, commentCount: Int = 0) {
         self.number = number
         self.title = title
         self.repo = repo
@@ -58,6 +66,8 @@ public struct PRSummary: Sendable, Equatable {
         self.checksDone = checksDone
         self.unresolvedThreads = unresolvedThreads
         self.moreThreads = moreThreads
+        self.reviewCount = reviewCount
+        self.commentCount = commentCount
     }
 
     /// A count that honestly says "N+" when we only saw the first page of threads.
@@ -152,6 +162,8 @@ extension GitHubAPIClient {
               ... on PullRequest {
                 number title url isDraft reviewDecision mergeable
                 repository { nameWithOwner }
+                reviews(first: 0) { totalCount }
+                comments(first: 0) { totalCount }
                 reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage } }
                 commits(last: 1) { nodes { commit { statusCheckRollup {
                   state
@@ -183,7 +195,9 @@ extension GitHubAPIClient {
                              isDraft: node.isDraft ?? false,
                              checksState: rollup?.state,
                              checksTotal: total, checksDone: done,
-                             unresolvedThreads: unresolved, moreThreads: moreThreads)
+                             unresolvedThreads: unresolved, moreThreads: moreThreads,
+                             reviewCount: node.reviews?.totalCount ?? 0,
+                             commentCount: node.comments?.totalCount ?? 0)
         }
         return PRListObservation(total: decoded.search.issueCount, items: items, observedAt: now)
     }
@@ -213,7 +227,10 @@ struct GQLSearch: Decodable {
         let repository: Repo?
         let commits: Commits?
         let reviewThreads: ReviewThreads?
+        let reviews: CountOnly?
+        let comments: CountOnly?
         struct Repo: Decodable { let nameWithOwner: String }
+        struct CountOnly: Decodable { let totalCount: Int }
         struct ReviewThreads: Decodable {
             let nodes: [Thread]
             let pageInfo: PageInfo?

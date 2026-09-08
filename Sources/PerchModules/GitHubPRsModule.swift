@@ -155,15 +155,20 @@ public struct GitHubPRsModule: NotchModule {
     }
 
     public func notification(for value: PRState, previous: PRState?) -> ModuleAlert? {
-        // Alert when the review queue grows — a new PR is waiting on you.
-        guard let previous, value.count > previous.count else { return nil }
-        let newest = value.items.first
+        // Tell the user when a watched PR *changes* — a merge conflict appears,
+        // CI breaks, someone reviews/comments, it's approved — not only when a new
+        // PR arrives. Surface the single most important change and summarise the
+        // rest ("+N more"); stable ids keep the same state from re-nagging.
+        guard let previous else { return nil }
+        let changes = PRTransitions.detect(previous: previous.items, current: value.items,
+                                           previousCount: previous.count, currentCount: value.count)
+        guard let top = changes.max(by: { $0.kind < $1.kind }) else { return nil }
+        let extra = changes.count - 1
         return ModuleAlert(
-            id: "prs-\(value.count)-\(newest?.number ?? 0)",
-            title: "Review requested",
-            body: newest.map { "#\($0.number) \($0.title)" }
-                ?? "\(value.count) PR\(value.count == 1 ? "" : "s") waiting on you",
-            url: newest?.url)
+            id: top.id,
+            title: "#\(top.number) \(top.title)",
+            body: extra > 0 ? "\(top.phrase)  ·  +\(extra) more" : top.phrase,
+            url: top.url)
     }
 
     public func contextLabel(_ context: ModuleContext) -> String? {
@@ -236,7 +241,16 @@ public struct GitHubPRsModule: NotchModule {
             }
             return ("awaiting re-review", .warning, "clock.arrow.circlepath")
         case "REVIEW_REQUIRED":   return ("review required", .warning, "clock.fill")
-        default:                  return ("open", .info, "arrow.triangle.pull")
+        default:
+            // No formal decision, but say whether people have engaged instead of a
+            // bare "open": a Comment review → "commented"; conversation → "N
+            // comments". (A plain "Comment" review never sets reviewDecision, so
+            // "open" alone hides that the PR has been looked at.)
+            if pr.reviewCount > 0 { return ("commented", .info, "text.bubble.fill") }
+            if pr.commentCount > 0 {
+                return ("\(pr.commentCount) comment\(pr.commentCount == 1 ? "" : "s")", .info, "bubble.left.fill")
+            }
+            return ("open", .info, "arrow.triangle.pull")
         }
     }
 

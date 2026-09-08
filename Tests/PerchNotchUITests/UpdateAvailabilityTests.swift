@@ -15,6 +15,21 @@ import Testing
         #expect(UpdateAvailability.releasePage(version: "1.2.0").buttonTitle == "Get 1.2.0")
     }
 
+    @Test func offeredVersionAndUpToDateDriveTheVersionLine() {
+        // The newest release a state knows about — for the "· latest vX" hint.
+        #expect(UpdateAvailability.available(version: "1.6.0").offeredVersion == "1.6.0")
+        #expect(UpdateAvailability.downloading(version: "1.6.0").offeredVersion == "1.6.0")
+        #expect(UpdateAvailability.releasePage(version: "1.6.0").offeredVersion == "1.6.0")
+        // Up to date / idle / checking haven't got a distinct newer version to show.
+        #expect(UpdateAvailability.upToDate.offeredVersion == nil)
+        #expect(UpdateAvailability.idle.offeredVersion == nil)
+        #expect(UpdateAvailability.checking.offeredVersion == nil)
+        // isUpToDate flags only the confirmed-current state.
+        #expect(UpdateAvailability.upToDate.isUpToDate)
+        #expect(!UpdateAvailability.available(version: "1.6.0").isUpToDate)
+        #expect(!UpdateAvailability.idle.isUpToDate)
+    }
+
     @Test func onlyInFlightStatesAreInert() {
         // Something to act on → tappable.
         #expect(UpdateAvailability.idle.isActionable)

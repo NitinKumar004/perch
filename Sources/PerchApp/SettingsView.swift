@@ -205,12 +205,24 @@ struct SettingsView: View {
             Spacer(minLength: 16)
             VStack(alignment: .trailing, spacing: 4) {
                 updateButton
-                // The running version, so it's always clear what you're on.
-                Text("Version \(PerchVersion.current)")
+                // Always show the running version, plus the latest known release
+                // once a check has run — so it's clear both what you're on AND
+                // what the newest is, even when there's nothing to update.
+                Text(versionLine)
                     .font(.system(size: 10)).foregroundStyle(.secondary)
             }
         }
         .padding(20)
+    }
+
+    /// "Version 1.6.0 · up to date", "Version 1.5.2 · latest v1.6.0", or just
+    /// "Version 1.5.2" before any check has learned the latest.
+    private var versionLine: String {
+        let current = "Version \(PerchVersion.current)"
+        let status = updateModel.updateStatus
+        if status.isUpToDate { return "\(current) · up to date" }
+        if let latest = status.offeredVersion { return "\(current) · latest \(latest)" }
+        return current
     }
 
     /// Top-right update control. Reads the shared update state so it reflects the

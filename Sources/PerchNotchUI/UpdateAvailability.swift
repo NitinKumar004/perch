@@ -56,4 +56,22 @@ public enum UpdateAvailability: Sendable, Equatable {
         if case .available = self { return true }
         return false
     }
+
+    /// The newest release version this state has learned about, if any — for an
+    /// always-visible "latest vX" hint next to the running version. `.upToDate`
+    /// returns nil here because the newest version equals the one you're running
+    /// (the caller supplies the current version for that case); `.idle`/`.checking`
+    /// haven't learned a version yet.
+    public var offeredVersion: String? {
+        switch self {
+        case .available(let v), .downloading(let v), .releasePage(let v): return v
+        case .idle, .checking, .upToDate: return nil
+        }
+    }
+
+    /// Whether a check has completed and we're confirmed current.
+    public var isUpToDate: Bool {
+        if case .upToDate = self { return true }
+        return false
+    }
 }

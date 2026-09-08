@@ -80,11 +80,14 @@ private func tempConfigURL() -> URL {
     var thresholds = MetricThresholds.standard
     thresholds.swapCriticalGB = 12       // a user-tuned level
     thresholds.cpuWarn = 60
+    var pacing = AlertPacing.standard
+    pacing.dwellSeconds = 20
     config.global = GlobalSettings(autoOpenOnRed: true, quietHours: "22:00-08:00", theme: "nord",
-                                   notchBanner: false, thresholds: thresholds)
+                                   notchBanner: false, thresholds: thresholds, pacing: pacing)
     try store.save(config)
     #expect(store.load().global == config.global)
     #expect(store.load().global.thresholds.swapCriticalGB == 12)   // custom levels persist
+    #expect(store.load().global.pacing.dwellSeconds == 20)         // custom pacing persists
 
     // A v1-style file with no `global` key still loads with defaults.
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

@@ -18,6 +18,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var bannerPresenter: BannerPresenter?
     /// Whether alerts also show as a transient in-notch banner (user setting).
     private var showNotchBanner = true
+    /// True while the panel is open *because* it auto-opened on red (not opened
+    /// by the user) — such a panel closes itself after a short peek.
+    private var panelAutoOpened = false
+    /// The pending auto-close for an auto-opened panel, cancelled if the user
+    /// takes over or keeps the pointer on it.
+    private var autoCloseTask: Task<Void, Never>?
+    /// Whether the pointer is currently over the panel — pauses the auto-close
+    /// countdown while you're reading it (even across a second red event).
+    private var panelHovered = false
     /// Panel-item id → the config binding it came from, for drag-to-reorder.
     /// Only explicitly-placed panel modules are recorded (auto-surfaced pill rows
     /// aren't reorderable). Rebuilt every applyConfig.
@@ -63,7 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onQuit: { [weak self] in self?.confirmQuit() },
             onAction: { [weak self] action in self?.handleAction(action) },
             onDropFiles: { [weak self] urls in self?.handleDroppedFiles(urls) ?? false },
-            onReorder: { [weak self] orderedIDs in self?.reorderPanel(orderedIDs: orderedIDs) }
+            onReorder: { [weak self] orderedIDs in self?.reorderPanel(orderedIDs: orderedIDs) },
+            onHover: { [weak self] hovering in self?.handlePanelHover(hovering) }
         )
         let controller = NotchWindowController(model: model, onActivate: { [weak self] in
             self?.handleActivate()
@@ -195,6 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     fileShelfController: fileShelfController,
                                     thresholds: config.global.thresholds)
         let binder = SlotBinder(model: model, context: ModuleContext(), notifier: notifier,
+                                pacing: config.global.pacing,
                                 onCritical: { [weak self] in
                                     guard autoOpenOnRed else { return }
                                     self?.autoOpenPanel()
@@ -287,6 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Connect / Settings / Reload / Quit, so everything is reachable from the
     /// notch without the menu-bar icon.
     private func handleActivate() {
+        cancelAutoClose()   // the user is driving now — no auto-close under them
         model.isPanelOpen.toggle()
         windowController?.setPanelOpen(model.isPanelOpen)
         if model.isPanelOpen {
@@ -308,13 +320,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.button?.contentTintColor = color
     }
 
-    /// Pop the panel because something went red (auto-open-on-red). No-op if it's
-    /// already open, so a flapping build doesn't yank focus repeatedly.
+    /// Pop the panel because something went red (auto-open-on-red), then let it
+    /// close itself after a short peek so it never sits open forever. If it's
+    /// already open from an earlier auto-open, just restart the countdown; if the
+    /// user opened it themselves, leave it alone.
     private func autoOpenPanel() {
-        guard !model.isPanelOpen else { return }
+        if model.isPanelOpen {
+            // A new red event restarts the peek — but not while the pointer is on
+            // the panel (you're reading it); the hover-exit will re-arm it.
+            if panelAutoOpened, !panelHovered { scheduleAutoClose() }
+            return
+        }
         model.isPanelOpen = true
         windowController?.setPanelOpen(true)
         refreshConnectedFlag()
+        panelAutoOpened = true
+        panelHovered = false   // fresh peek starts un-hovered; onHover re-pauses if the pointer's on it
+        scheduleAutoClose()
+    }
+
+    /// How long an auto-opened panel stays before closing itself.
+    static let autoCloseDelay: Duration = .seconds(5)
+
+    /// Arm (or re-arm) the auto-close countdown for an auto-opened panel.
+    private func scheduleAutoClose() {
+        autoCloseTask?.cancel()
+        autoCloseTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: AppDelegate.autoCloseDelay)
+            guard let self, !Task.isCancelled else { return }
+            if AutoClose.shouldClose(panelOpen: self.model.isPanelOpen,
+                                     autoOpened: self.panelAutoOpened, hovering: self.panelHovered) {
+                self.model.isPanelOpen = false
+                self.windowController?.setPanelOpen(false)
+                self.panelAutoOpened = false
+            }
+        }
+    }
+
+    /// Cancel any pending auto-close and stop treating the panel as an auto-open
+    /// peek — called whenever the user takes control (toggles it, opens Settings,
+    /// quits), so a panel the user is using never closes under them.
+    private func cancelAutoClose() {
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
+        panelAutoOpened = false
+        panelHovered = false
+    }
+
+    /// Pointer entered/left the panel: pause the countdown while reading, resume
+    /// it on exit — but only while it's still an auto-open peek. The `panelHovered`
+    /// flag also blocks a second red event from re-arming the close mid-read.
+    private func handlePanelHover(_ hovering: Bool) {
+        panelHovered = hovering
+        guard panelAutoOpened, model.isPanelOpen else { return }
+        if hovering { autoCloseTask?.cancel() } else { scheduleAutoClose() }
     }
 
     /// Keep the model's connected flag current so the panel shows Connect only
@@ -430,6 +489,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The detail panel floats at status-bar window level, so it would draw on
         // top of the modal alert and hide its title/message. Close it first so the
         // dialog is fully visible.
+        cancelAutoClose()
         if model.isPanelOpen {
             model.isPanelOpen = false
             windowController?.setPanelOpen(false)
@@ -470,6 +530,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the notch immediately.
     @objc private func openSettings() {
         // Close the notch drop-down first so it doesn't float over the window.
+        cancelAutoClose()
         model.isPanelOpen = false
         windowController?.setPanelOpen(false)
 

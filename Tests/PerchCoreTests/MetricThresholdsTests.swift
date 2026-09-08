@@ -51,3 +51,22 @@ import Foundation
         #expect(back == t)
     }
 }
+
+@Suite struct AlertPacingTests {
+    @Test func defaultsAreSensible() {
+        #expect(AlertPacing.standard.dwellSeconds == 10)
+        #expect(AlertPacing.standard.cooldownSeconds == 120)
+    }
+
+    @Test func decodingIsTolerantAndRoundTrips() throws {
+        // Missing field falls back to default.
+        let partial = try JSONDecoder().decode(AlertPacing.self, from: Data(#"{"dwellSeconds": 3}"#.utf8))
+        #expect(partial.dwellSeconds == 3)
+        #expect(partial.cooldownSeconds == AlertPacing.standard.cooldownSeconds)
+        // Full round-trip.
+        var p = AlertPacing.standard
+        p.cooldownSeconds = 300
+        let back = try JSONDecoder().decode(AlertPacing.self, from: JSONEncoder().encode(p))
+        #expect(back == p)
+    }
+}

@@ -73,15 +73,20 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
     /// User-tunable warn/critical levels for the system metrics (CPU, memory,
     /// swap, disk, load). Defaults to sensible standard levels.
     public var thresholds: MetricThresholds
+    /// How eagerly a red metric may pop the panel/banner — dwell + cooldown that
+    /// damp a value flapping at its threshold. Defaults to sensible pacing.
+    public var pacing: AlertPacing
 
     public init(autoOpenOnRed: Bool = false, quietHours: String? = nil,
                 theme: String = "system", notchBanner: Bool = true,
-                thresholds: MetricThresholds = .standard) {
+                thresholds: MetricThresholds = .standard,
+                pacing: AlertPacing = .standard) {
         self.autoOpenOnRed = autoOpenOnRed
         self.quietHours = quietHours
         self.theme = theme
         self.notchBanner = notchBanner
         self.thresholds = thresholds
+        self.pacing = pacing
     }
 
     public init(from decoder: Decoder) throws {
@@ -91,6 +96,7 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
         theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? "system"
         notchBanner = try c.decodeIfPresent(Bool.self, forKey: .notchBanner) ?? true
         thresholds = try c.decodeIfPresent(MetricThresholds.self, forKey: .thresholds) ?? .standard
+        pacing = try c.decodeIfPresent(AlertPacing.self, forKey: .pacing) ?? .standard
     }
 
     /// Parse `quietHours` into (startMinuteOfDay, endMinuteOfDay), or nil if

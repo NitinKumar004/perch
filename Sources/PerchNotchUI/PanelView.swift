@@ -20,6 +20,10 @@ public struct PanelActions: Sendable {
     /// Reorder panel modules by drag: the new full order of panel-item ids. The
     /// shell reorders the live rows and persists the order to the active preset.
     public var onReorder: @MainActor (_ orderedIDs: [String]) -> Void
+    /// The pointer entered (true) or left (false) the panel. Lets the shell pause
+    /// an auto-open's auto-close countdown while you're reading it, and resume it
+    /// when you move away.
+    public var onHover: @MainActor (_ hovering: Bool) -> Void
 
     public init(onConnect: @escaping @MainActor () -> Void = {},
                 onSettings: @escaping @MainActor () -> Void = {},
@@ -27,7 +31,8 @@ public struct PanelActions: Sendable {
                 onQuit: @escaping @MainActor () -> Void = {},
                 onAction: @escaping @MainActor (String) -> Void = { _ in },
                 onDropFiles: @escaping @MainActor ([URL]) -> Bool = { _ in false },
-                onReorder: @escaping @MainActor ([String]) -> Void = { _ in }) {
+                onReorder: @escaping @MainActor ([String]) -> Void = { _ in },
+                onHover: @escaping @MainActor (Bool) -> Void = { _ in }) {
         self.onConnect = onConnect
         self.onSettings = onSettings
         self.onReload = onReload
@@ -35,6 +40,7 @@ public struct PanelActions: Sendable {
         self.onAction = onAction
         self.onDropFiles = onDropFiles
         self.onReorder = onReorder
+        self.onHover = onHover
     }
 }
 
@@ -75,6 +81,9 @@ struct PanelView: View {
                                   lineWidth: isDropTargeted ? 2 : 1))
         )
         .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
+        // Pause an auto-open's auto-close countdown while the pointer is over the
+        // panel (you're reading it), resume it when the pointer leaves.
+        .onHover { actions.onHover($0) }
         // Drop files anywhere on the panel → the file shelf (if configured).
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             loadDroppedURLs(providers)

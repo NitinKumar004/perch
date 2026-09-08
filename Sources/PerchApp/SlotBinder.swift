@@ -26,13 +26,18 @@ final class SlotBinder {
     ///     into a critical (red) state, so the shell can auto-open.
     ///   - onStatusChange: called after every render, so the shell can refresh
     ///     the menu-bar icon to reflect the worst current state.
+    /// Dwell + cooldown damping for auto-open/banner (hysteresis is automatic).
+    private let pacing: AlertPacing
+
     init(model: NotchViewModel, context: ModuleContext, notifier: Notifier,
+         pacing: AlertPacing = .standard,
          onCritical: @escaping () -> Void = {},
          onStatusChange: @escaping () -> Void = {},
          onBanner: @escaping (BannerAlert) -> Void = { _ in }) {
         self.model = model
         self.baseContext = context
         self.notifier = notifier
+        self.pacing = pacing
         self.onCritical = onCritical
         self.onStatusChange = onStatusChange
         self.onBanner = onBanner
@@ -57,29 +62,42 @@ final class SlotBinder {
         let context = ModuleContext(clock: baseContext.clock, settings: settings)
         let opensOnCritical = module.descriptor.opensPanelOnCritical
         let stream = module.renderStream(context, slot: .panel)  // slot-independent face
+        let pacing = self.pacing
         let task = Task { @MainActor [model, notifier, onCritical, onStatusChange, onBanner] in
-            // nil until the first *live* render establishes a baseline. Only
-            // real observations count: a module yields a `.unknown` placeholder
-            // seed before its first poll, so if we baselined on the seed, the
-            // first real value of an already-failing build would look like a
-            // fresh good→red transition and pop the panel on every launch/reload.
-            // Baselining on the first live render fixes that — an already-red
-            // build shows in the red menu-bar bird; only a genuine good→red
-            // transition DURING the session auto-opens.
-            var tracker = AutoOpenTracker(opensOnCritical: opensOnCritical)
+            // The tracker owns the baseline / dwell / hysteresis / cooldown rules
+            // (see AutoOpenTracker). A non-live seed is ignored, an already-red
+            // metric at launch is a silent baseline, and a value flapping at its
+            // threshold peeks once — not on every crossing.
+            var tracker = AutoOpenTracker(opensOnCritical: opensOnCritical,
+                                          dwell: TimeInterval(pacing.dwellSeconds),
+                                          cooldown: TimeInterval(pacing.cooldownSeconds))
             for await render in stream {
-                let didAutoOpen = tracker.observe(isCritical: render.pill.face.tint == .critical,
-                                                  isLive: render.pill.freshness.isTrustworthy)
+                let didAutoOpen = tracker.observe(tint: render.pill.face.tint,
+                                                  isLive: render.pill.freshness.isTrustworthy,
+                                                  now: render.pill.asOf)
                 if didAutoOpen { onCritical() }
 
-                // Banner: EVERY delivered alert surfaces in the notch pill — in
-                // all cases, even over an open panel — so a notification is never
-                // silently missed. (post() still dedups and honours quiet hours;
-                // the notchBanner setting still gates it in the app.) If a metric
-                // auto-opened without its own alert, a banner that says WHY.
-                if let alert = render.alert, notifier.post(alert) == .delivered {
-                    onBanner(BannerAlert(id: alert.id, title: alert.title, body: alert.body,
-                                         tint: render.pill.face.tint, url: alert.url))
+                // Banner: a delivered alert surfaces in the notch pill — even over
+                // an open panel — so a notification is never silently missed.
+                // (post() still dedups and honours quiet hours; the notchBanner
+                // setting still gates it in the app.) A module's OWN *red* alert
+                // (e.g. memory's sustained-high) is held to the SAME cooldown as
+                // the auto-open, so a red-flapping metric can't out-nag the user's
+                // pace through its own channel; amber ("serious") and event alerts
+                // (GitHub) pass through, and a same-tick auto-open already cleared
+                // the gate so its richer alert still shows. If a metric auto-opened
+                // without its own alert, a banner that says WHY.
+                if let alert = render.alert {
+                    // Cooldown-gate only a RED alert that didn't already auto-open
+                    // (a same-tick auto-open passed the tracker's gate, so its
+                    // richer alert shows). `admitRedAlert` is consulted only here,
+                    // so a red tick without a module alert never consumes cooldown.
+                    let alertIsRed = render.pill.face.tint == .critical
+                    let admit = !alertIsRed || didAutoOpen || tracker.admitRedAlert(now: render.pill.asOf)
+                    if admit, notifier.post(alert) == .delivered {
+                        onBanner(BannerAlert(id: alert.id, title: alert.title, body: alert.body,
+                                             tint: render.pill.face.tint, url: alert.url))
+                    }
                 } else if didAutoOpen {
                     onBanner(BannerAlert(id: "autoopen-\(AlertEpisode.token())",
                                          title: Self.autoOpenReason(render),

@@ -26,6 +26,8 @@ struct SettingsView: View {
     @State private var theme: String
     @State private var notchBanner: Bool
     @State private var thresholds: MetricThresholds
+    @State private var pacing: AlertPacing
+    @State private var expanded: Set<String> = []   // collapsible section ids currently open
     @State private var config: LayoutConfig       // the whole layout being edited
     @State private var activePreset: String       // the preset key currently shown
     @State private var presetNameField: String    // editable name of the active preset
@@ -79,34 +81,40 @@ struct SettingsView: View {
         _theme = State(initialValue: config.global.theme)
         _notchBanner = State(initialValue: config.global.notchBanner)
         _thresholds = State(initialValue: config.global.thresholds)
+        _pacing = State(initialValue: config.global.pacing)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 16) {
                     presetSection
-                    Divider()
                     connectionCard
-                    Divider()
-                    positionSection
-                    Divider()
-                    themeSection
-                    Divider()
-                    behaviourSection
-                    Divider()
-                    thresholdsSection
-                    Divider()
-                    slotSection(title: "Left pill",
-                                caption: "The icon just left of the notch.",
-                                editor: $left, kind: .left)
-                    Divider()
-                    slotSection(title: "Right pill",
-                                caption: "The icon just right of the notch.",
-                                editor: $right, kind: .right)
-                    Divider()
-                    panelSection
+                    // Everything below is a grouped card of collapsible rows, so
+                    // Settings stays short; click a row to expand just that one.
+                    VStack(spacing: 0) {
+                        disclosureRow("position", "HUD position", "macwindow")   { positionSection }
+                        rowDivider
+                        disclosureRow("theme", "Theme", "paintpalette")          { themeSection }
+                        rowDivider
+                        disclosureRow("behaviour", "Behaviour", "slider.horizontal.3") { behaviourSection }
+                        rowDivider
+                        disclosureRow("levels", "Alert levels", "bell.badge")    { thresholdsSection }
+                        rowDivider
+                        disclosureRow("left", "Left pill", "l.square")           {
+                            slotSection(caption: "The icon just left of the notch.", editor: $left, kind: .left)
+                        }
+                        rowDivider
+                        disclosureRow("right", "Right pill", "r.square")         {
+                            slotSection(caption: "The icon just right of the notch.", editor: $right, kind: .right)
+                        }
+                        rowDivider
+                        disclosureRow("panel", "Panel", "list.bullet.rectangle") { panelSection }
+                    }
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.04)))
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.08)))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 .padding(20)
             }
@@ -120,6 +128,69 @@ struct SettingsView: View {
             while !Task.isCancelled {
                 connected = await isConnected()
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
+            }
+        }
+    }
+
+    /// One collapsible section as a styled grouped-list row (icon · title ·
+    /// chevron, hover highlight) that reveals its content when expanded. One
+    /// generic row drives every section; adding another is a single
+    /// `disclosureRow(id, title, icon) { … }` call plus a `rowDivider`.
+    private func disclosureRow<Content: View>(_ id: String, _ title: String, _ icon: String,
+                                              @ViewBuilder content: @escaping () -> Content) -> some View {
+        DisclosureRow(icon: icon, title: title, isOpen: sectionBinding(id), content: content)
+    }
+
+    /// The hairline between rows in the grouped card, inset under the title.
+    private var rowDivider: some View {
+        Divider().overlay(Color.primary.opacity(0.06)).padding(.leading, 44)
+    }
+
+    /// Two-way binding into the `expanded` set for one section id.
+    private func sectionBinding(_ id: String) -> Binding<Bool> {
+        Binding(get: { expanded.contains(id) },
+                set: { open in
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        if open { expanded.insert(id) } else { expanded.remove(id) }
+                    }
+                })
+    }
+
+    /// One grouped-list row: an SF Symbol, the title, and a chevron that rotates
+    /// when open, with a hover highlight; its content drops in below when open.
+    /// Owns its own hover state so the wrapper stays a plain generic component.
+    private struct DisclosureRow<Content: View>: View {
+        let icon: String
+        let title: String
+        @Binding var isOpen: Bool
+        let content: () -> Content
+        @State private var hover = false
+
+        var body: some View {
+            VStack(spacing: 0) {
+                Button { isOpen.toggle() } label: {
+                    HStack(spacing: 11) {
+                        Image(systemName: icon)
+                            .font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 22)
+                        Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary)
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(isOpen ? 90 : 0))
+                            .accessibilityHidden(true)
+                    }
+                    .padding(.horizontal, 12).frame(height: 42)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background(hover ? Color.primary.opacity(0.05) : Color.clear)
+                .onHover { hover = $0 }
+
+                if isOpen {
+                    VStack(alignment: .leading, spacing: 8) { content() }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14).padding(.top, 2).padding(.bottom, 14)
+                }
             }
         }
     }
@@ -246,7 +317,6 @@ struct SettingsView: View {
 
     private var positionSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("HUD position").font(.system(size: 13, weight: .semibold))
             Picker("", selection: $hudPosition) {
                 Text("Flank the notch").tag("flank")
                 Text("Right of the notch").tag("right")
@@ -263,7 +333,6 @@ struct SettingsView: View {
 
     private var themeSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Theme").font(.system(size: 13, weight: .semibold))
             // A compact grid of preview tiles — each theme shown on its own
             // surface, the selected one ringed. Far tighter than a full-width row
             // per theme, and the swatch IS the choice. Applies on Save.
@@ -316,7 +385,6 @@ struct SettingsView: View {
 
     private var behaviourSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Behaviour").font(.system(size: 13, weight: .semibold))
             Toggle("Open the panel automatically when something goes red",
                    isOn: $autoOpenOnRed)
                 .toggleStyle(.checkbox).font(.system(size: 12))
@@ -336,52 +404,82 @@ struct SettingsView: View {
 
     private var thresholdsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Alert levels").font(.system(size: 13, weight: .semibold))
             Text("When each metric turns amber (warn) and red (critical). Red is what pops the panel.")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
-            thresholdRow("CPU", unit: "%",
-                         warn: $thresholds.cpuWarn, critical: $thresholds.cpuCritical, range: 10...100, step: 5)
-            thresholdRow("Memory", unit: "%",
-                         warn: $thresholds.memoryWarn, critical: $thresholds.memoryCritical, range: 10...100, step: 5)
-            thresholdRow("Disk used", unit: "%",
-                         warn: $thresholds.diskWarn, critical: $thresholds.diskCritical, range: 10...100, step: 5)
-            thresholdRowDouble("Swap", unit: "GB",
-                               warn: $thresholds.swapWarnGB, critical: $thresholds.swapCriticalGB, range: 0.5...64, step: 0.5)
-            thresholdRowDouble("Load / core", unit: "×",
-                               warn: $thresholds.loadWarnRatio, critical: $thresholds.loadCriticalRatio, range: 0.2...4, step: 0.1)
-            Button("Reset to defaults") { thresholds = .standard }
-                .controlSize(.small).font(.system(size: 11))
-            Text("Thermal follows macOS's own throttle-pressure signal — not a level you set.")
-                .font(.system(size: 10)).foregroundStyle(.secondary)
+
+            Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 6) {
+                GridRow {
+                    Text("")
+                    Text("WARN").font(.system(size: 9, weight: .semibold)).tracking(0.5).foregroundStyle(Color.orange)
+                    Text("CRITICAL").font(.system(size: 9, weight: .semibold)).tracking(0.5).foregroundStyle(Color.red)
+                }
+                thresholdIntRow("CPU", "%", $thresholds.cpuWarn, $thresholds.cpuCritical, 10...100, 5)
+                thresholdIntRow("Memory", "%", $thresholds.memoryWarn, $thresholds.memoryCritical, 10...100, 5)
+                thresholdIntRow("Disk used", "%", $thresholds.diskWarn, $thresholds.diskCritical, 10...100, 5)
+                thresholdDoubleRow("Swap", "GB", $thresholds.swapWarnGB, $thresholds.swapCriticalGB, 0.5...64, 0.5)
+                thresholdDoubleRow("Load / core", "×", $thresholds.loadWarnRatio, $thresholds.loadCriticalRatio, 0.2...4, 0.1)
+            }
+
+            HStack(spacing: 10) {
+                Button("Reset to defaults") { thresholds = .standard }
+                    .controlSize(.small).font(.system(size: 11))
+                Text("Thermal is macOS's own throttle-pressure signal — not a level you set.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+
+            Divider().padding(.vertical, 4)
+            Text("Alert pacing").font(.system(size: 12, weight: .semibold))
+            Text("Stops a metric flapping at its limit from alerting every few seconds.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
+                GridRow {
+                    Text("Wait before alerting").font(.system(size: 12))
+                    pacingCell($pacing.dwellSeconds, 0...60, 5, "\(pacing.dwellSeconds)s")
+                }
+                GridRow {
+                    Text("Don't repeat for").font(.system(size: 12))
+                    pacingCell($pacing.cooldownSeconds, 0...600, 30,
+                               pacing.cooldownSeconds >= 60 ? "\(pacing.cooldownSeconds / 60)m" : "\(pacing.cooldownSeconds)s")
+                }
+            }
         }
     }
 
-    private func thresholdRow(_ label: String, unit: String,
-                              warn: Binding<Int>, critical: Binding<Int>,
-                              range: ClosedRange<Int>, step: Int) -> some View {
-        HStack(spacing: 8) {
-            Text(label).font(.system(size: 12)).frame(width: 90, alignment: .leading)
-            Stepper(value: warn, in: range, step: step) {
-                Text("warn \(warn.wrappedValue)\(unit)").font(.system(size: 11)).foregroundStyle(Color.orange)
-            }.frame(width: 150)
-            Stepper(value: critical, in: range, step: step) {
-                Text("red \(critical.wrappedValue)\(unit)").font(.system(size: 11)).foregroundStyle(Color.red)
-            }.frame(width: 150)
+    /// One metric's row: name, then compact warn + critical stepper cells whose
+    /// value text is fixed-width so the three columns line up in the grid.
+    @ViewBuilder
+    private func thresholdIntRow(_ name: String, _ unit: String, _ warn: Binding<Int>,
+                                 _ crit: Binding<Int>, _ range: ClosedRange<Int>, _ step: Int) -> some View {
+        GridRow {
+            Text(name).font(.system(size: 12))
+            stepperCell("\(warn.wrappedValue)\(unit)", .orange) { Stepper("", value: warn, in: range, step: step).labelsHidden() }
+            stepperCell("\(crit.wrappedValue)\(unit)", .red) { Stepper("", value: crit, in: range, step: step).labelsHidden() }
         }
     }
 
-    private func thresholdRowDouble(_ label: String, unit: String,
-                                    warn: Binding<Double>, critical: Binding<Double>,
-                                    range: ClosedRange<Double>, step: Double) -> some View {
-        HStack(spacing: 8) {
-            Text(label).font(.system(size: 12)).frame(width: 90, alignment: .leading)
-            Stepper(value: warn, in: range, step: step) {
-                Text("warn \(warn.wrappedValue, specifier: "%.1f")\(unit)").font(.system(size: 11)).foregroundStyle(Color.orange)
-            }.frame(width: 150)
-            Stepper(value: critical, in: range, step: step) {
-                Text("red \(critical.wrappedValue, specifier: "%.1f")\(unit)").font(.system(size: 11)).foregroundStyle(Color.red)
-            }.frame(width: 150)
+    @ViewBuilder
+    private func thresholdDoubleRow(_ name: String, _ unit: String, _ warn: Binding<Double>,
+                                    _ crit: Binding<Double>, _ range: ClosedRange<Double>, _ step: Double) -> some View {
+        GridRow {
+            Text(name).font(.system(size: 12))
+            stepperCell(String(format: "%.1f%@", warn.wrappedValue, unit), .orange) { Stepper("", value: warn, in: range, step: step).labelsHidden() }
+            stepperCell(String(format: "%.1f%@", crit.wrappedValue, unit), .red) { Stepper("", value: crit, in: range, step: step).labelsHidden() }
         }
+    }
+
+    /// A value label (fixed width, right-aligned, tabular) next to a bare stepper.
+    /// The width fits the widest value shown (e.g. "64.0GB"). Used by both the
+    /// threshold cells and the pacing cells — one widget, not two.
+    private func stepperCell(_ text: String, _ tint: Color, @ViewBuilder _ stepper: () -> some View) -> some View {
+        HStack(spacing: 5) {
+            Text(text).font(.system(size: 11, weight: .medium)).monospacedDigit()
+                .foregroundStyle(tint).frame(width: 52, alignment: .trailing)
+            stepper()
+        }
+    }
+
+    private func pacingCell(_ value: Binding<Int>, _ range: ClosedRange<Int>, _ step: Int, _ text: String) -> some View {
+        stepperCell(text, Color.secondary) { Stepper("", value: value, in: range, step: step).labelsHidden() }
     }
 
     // MARK: - GitHub connection
@@ -469,9 +567,8 @@ struct SettingsView: View {
 
     // MARK: - One slot (a single module)
 
-    private func slotSection(title: String, caption: String, editor: Binding<SlotEditor>, kind: SlotKind) -> some View {
+    private func slotSection(caption: String, editor: Binding<SlotEditor>, kind: SlotKind) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.system(size: 13, weight: .semibold))
             Text(caption).font(.system(size: 11)).foregroundStyle(.secondary)
             modulePicker(editor: editor, kind: kind)
             settingsFields(for: editor)
@@ -567,11 +664,8 @@ struct SettingsView: View {
     private var panelSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Panel").font(.system(size: 13, weight: .semibold))
-                    Text("The list shown when you click the notch.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                }
+                Text("The list shown when you click the notch.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
                 Spacer()
                 Button {
                     panel.append(SlotEditor(binding: nil))
@@ -661,7 +755,7 @@ struct SettingsView: View {
         out.global = GlobalSettings(autoOpenOnRed: autoOpenOnRed,
                                     quietHours: trimmed.isEmpty ? nil : trimmed,
                                     theme: theme, notchBanner: notchBanner,
-                                    thresholds: thresholds)
+                                    thresholds: thresholds, pacing: pacing)
         onSave(out)
     }
 

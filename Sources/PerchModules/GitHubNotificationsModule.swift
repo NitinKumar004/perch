@@ -126,12 +126,25 @@ public struct GitHubNotificationsModule: NotchModule {
         // observations), so this stays a simple new-vs-known diff.
         guard let previous else { return nil }
         let known = Set(previous.items.map(\.id))
-        guard let fresh = value.items.first(where: { !known.contains($0.id) }) else { return nil }
+        let fresh = value.items.filter { !known.contains($0.id) }
+        guard let first = fresh.first else { return nil }
+        // A single new thread names itself; a burst of several in one poll is
+        // summarised in ONE notification ("… +N more") so none is silently
+        // missed and the user isn't hit with a stack of banners at once. The id
+        // carries the newest thread id (+ count) so it dedups but a later burst
+        // still alerts.
+        if fresh.count == 1 {
+            return ModuleAlert(
+                id: "gh-notif-\(first.id)",
+                title: Self.friendlyReason(first.reason).capitalized,
+                body: "\(first.repo): \(first.title)",
+                url: first.htmlURL)
+        }
         return ModuleAlert(
-            id: "gh-notif-\(fresh.id)",
-            title: Self.friendlyReason(fresh.reason).capitalized,
-            body: "\(fresh.repo): \(fresh.title)",
-            url: fresh.htmlURL)
+            id: "gh-notif-\(first.id)-\(fresh.count)",
+            title: "\(fresh.count) new notifications",
+            body: "\(first.repo): \(first.title)  +\(fresh.count - 1) more",
+            url: first.htmlURL)
     }
 
     public func contextLabel(_ context: ModuleContext) -> String? { "unread on GitHub" }

@@ -21,14 +21,19 @@ public struct ModuleDependencies: Sendable {
     public let timerController: TimerController
     public let clipboardController: ClipboardController
     public let fileShelfController: FileShelfController
+    /// User-tunable warn/critical levels, injected so the metric modules colour
+    /// by the user's chosen levels — the same whether shown alone or in Combined.
+    public let thresholds: MetricThresholds
 
     public init(apiClient: GitHubAPIClient, timerController: TimerController,
                 clipboardController: ClipboardController,
-                fileShelfController: FileShelfController) {
+                fileShelfController: FileShelfController,
+                thresholds: MetricThresholds = .standard) {
         self.apiClient = apiClient
         self.timerController = timerController
         self.clipboardController = clipboardController
         self.fileShelfController = fileShelfController
+        self.thresholds = thresholds
     }
 }
 
@@ -121,10 +126,10 @@ public enum ModuleSpecs {
         },
 
         spec(VitalsModule.self, category: .local, tag: "usage %",
-             settings: [refreshSetting("2")]) { _, _ in AnyNotchModule(VitalsModule()) },
+             settings: [refreshSetting("2")]) { _, deps in AnyNotchModule(VitalsModule(thresholds: deps.thresholds)) },
 
         spec(MemoryModule.self, category: .local, tag: "RAM in use",
-             settings: [refreshSetting("2")]) { _, _ in AnyNotchModule(MemoryModule()) },
+             settings: [refreshSetting("2")]) { _, deps in AnyNotchModule(MemoryModule(thresholds: deps.thresholds)) },
 
         spec(NetworkModule.self, category: .local, tag: "up / down",
              settings: [refreshSetting("2")]) { _, _ in AnyNotchModule(NetworkModule()) },
@@ -133,16 +138,16 @@ public enum ModuleSpecs {
              settings: [refreshSetting("5")]) { _, _ in AnyNotchModule(ThermalModule()) },
 
         spec(SwapModule.self, category: .local, tag: "thrash warning",
-             settings: [refreshSetting("3")]) { _, _ in AnyNotchModule(SwapModule()) },
+             settings: [refreshSetting("3")]) { _, deps in AnyNotchModule(SwapModule(thresholds: deps.thresholds)) },
 
         spec(LoadModule.self, category: .local, tag: "system load",
-             settings: [refreshSetting("3")]) { _, _ in AnyNotchModule(LoadModule()) },
+             settings: [refreshSetting("3")]) { _, deps in AnyNotchModule(LoadModule(thresholds: deps.thresholds)) },
 
         spec(DiskModule.self, category: .local, tag: "free space",
              settings: [
                 ModuleSetting(key: "path", label: "Volume path", placeholder: "/", defaultValue: "/"),
                 refreshSetting("30"),
-             ]) { _, _ in AnyNotchModule(DiskModule()) },
+             ]) { _, deps in AnyNotchModule(DiskModule(thresholds: deps.thresholds)) },
 
         spec(ClipboardModule.self, category: .local, tag: "recent copies",
              settings: []) { _, deps in AnyNotchModule(ClipboardModule(controller: deps.clipboardController)) },

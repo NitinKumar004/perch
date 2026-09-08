@@ -68,14 +68,23 @@ final class SlotBinder {
             // transition DURING the session auto-opens.
             var tracker = AutoOpenTracker(opensOnCritical: opensOnCritical)
             for await render in stream {
-                if let alert = render.alert, notifier.post(alert) == .delivered,
-                   !model.isPanelOpen {   // the open panel already shows everything
+                let didAutoOpen = tracker.observe(isCritical: render.pill.face.tint == .critical,
+                                                  isLive: render.pill.freshness.isTrustworthy)
+                if didAutoOpen { onCritical() }
+
+                // Banner: EVERY delivered alert surfaces in the notch pill — in
+                // all cases, even over an open panel — so a notification is never
+                // silently missed. (post() still dedups and honours quiet hours;
+                // the notchBanner setting still gates it in the app.) If a metric
+                // auto-opened without its own alert, a banner that says WHY.
+                if let alert = render.alert, notifier.post(alert) == .delivered {
                     onBanner(BannerAlert(id: alert.id, title: alert.title, body: alert.body,
                                          tint: render.pill.face.tint, url: alert.url))
-                }
-                if tracker.observe(isCritical: render.pill.face.tint == .critical,
-                                   isLive: render.pill.freshness.isTrustworthy) {
-                    onCritical()
+                } else if didAutoOpen {
+                    onBanner(BannerAlert(id: "autoopen-\(AlertEpisode.token())",
+                                         title: Self.autoOpenReason(render),
+                                         body: "reached a critical level",
+                                         tint: .critical, url: nil))
                 }
                 if pills.contains(.leftPill) { model.leftPill = render.pill }
                 if pills.contains(.rightPill) { model.rightPill = render.pill }
@@ -90,6 +99,17 @@ final class SlotBinder {
             }
         }
         tasks.append(task)
+    }
+
+    /// A short reason for an auto-open: the specific metric that went red (its
+    /// panel-row title + value — so a Combined pill names the culprit, e.g.
+    /// "Swap used 9.0 GB"), falling back to the pill text.
+    nonisolated static func autoOpenReason(_ render: ModuleRender) -> String {
+        if let crit = render.detail.first(where: { $0.tint == .critical }) {
+            if let sub = crit.subtitle, !sub.isEmpty { return "\(crit.title) \(sub)" }
+            return crit.title
+        }
+        return render.pill.face.text.isEmpty ? "A metric" : render.pill.face.text
     }
 
     func cancelAll() {

@@ -154,6 +154,26 @@ private func firstRender(_ module: AnyNotchModule,
     #expect(text.filter { $0 == ":" }.count == 2)                // hh:mm:ss
 }
 
+@Test func e2e_githubNotificationsSummarisesABurst() {
+    let m = GitHubNotificationsModule(client: stubbedClient())
+    func thr(_ id: String) -> NotificationThread {
+        NotificationThread(id: id, reason: "mention", title: "PR \(id)", repo: "acme/api",
+                           subjectType: "PullRequest", apiURL: nil, updatedAt: Date())
+    }
+    let previous = NotificationState(items: [thr("1")])
+    // Two brand-new threads arrive in one poll → one summary alert (not silence
+    // for the second), deduped by the newest id.
+    let burst = m.notification(for: NotificationState(items: [thr("1"), thr("2"), thr("3")]),
+                               previous: previous)
+    #expect(burst?.title == "2 new notifications")
+    #expect(burst?.body.contains("+1 more") == true)
+    // A single new thread names itself.
+    let one = m.notification(for: NotificationState(items: [thr("1"), thr("2")]), previous: previous)
+    #expect(one?.title.contains("entioned") == true)   // "Mentioned You"
+    // Cold start (no previous live baseline) stays silent.
+    #expect(m.notification(for: NotificationState(items: [thr("1"), thr("2")]), previous: nil) == nil)
+}
+
 @Test func e2e_portMonitorReflectsConfiguredPort() async {
     // Bind a listener so the probe reports "up", then confirm the module shows it.
     let listener = TinyListener()

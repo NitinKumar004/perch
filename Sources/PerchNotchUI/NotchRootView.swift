@@ -22,7 +22,9 @@ public struct NotchRootView: View {
             Group {
                 // A transient alert takes over the pill row IN PLACE (same bar,
                 // no card hanging below the notch), then reverts to the pills.
-                if let banner = model.banner, !model.isPanelOpen {
+                // Shown even when the panel is open, so an auto-open's "why"
+                // banner is visible in the notch above the opened panel.
+                if let banner = model.banner {
                     bannerRow(banner)
                 } else if model.hudPosition == .flank {
                     flankRow

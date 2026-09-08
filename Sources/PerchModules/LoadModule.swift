@@ -35,7 +35,9 @@ public struct LoadModule: NotchModule {
         requiresConnection: false
     )
 
-    public init() {}
+    private let thresholds: MetricThresholds
+
+    public init(thresholds: MetricThresholds = .standard) { self.thresholds = thresholds }
 
     public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<LoadSample>> {
         let cores = max(1, ProcessInfo.processInfo.activeProcessorCount)
@@ -46,25 +48,18 @@ public struct LoadModule: NotchModule {
     }
 
     public func face(for value: LoadSample, in slot: Slot) -> PillFace {
-        Self.face(for: value)
+        faceFor(value)
     }
 
     public func detail(for value: LoadSample) -> [DetailRow] {
-        let f = Self.face(for: value)
         return [DetailRow(id: "load", title: "Load average",
                           subtitle: String(format: "%.2f over %d cores", value.oneMinute, value.cores),
-                          tint: f.tint, symbolName: "speedometer")]
+                          tint: thresholds.loadTint(ratio: value.ratio), symbolName: "speedometer")]
     }
 
-    static func face(for sample: LoadSample) -> PillFace {
+    private func faceFor(_ sample: LoadSample) -> PillFace {
         PillFace(text: String(format: "Load %.1f", sample.oneMinute),
-                 symbolName: "speedometer", tint: tint(sample.ratio),
+                 symbolName: "speedometer", tint: thresholds.loadTint(ratio: sample.ratio),
                  tooltip: String(format: "1-min load %.2f · %d cores", sample.oneMinute, sample.cores))
-    }
-    /// Per-core load: under ~0.7 comfortable, up to ~1.0 fully busy, above → overloaded.
-    static func tint(_ ratio: Double) -> Tint {
-        if ratio >= 1.0 { return .critical }
-        if ratio >= 0.7 { return .warning }
-        return .good
     }
 }

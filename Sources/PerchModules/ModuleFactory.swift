@@ -1,4 +1,5 @@
 import Foundation
+import PerchCore
 import PerchModuleKit
 import PerchGitHub
 import PerchConfig
@@ -13,10 +14,12 @@ public struct ModuleFactory: Sendable {
 
     public init(apiClient: GitHubAPIClient, timerController: TimerController,
                 clipboardController: ClipboardController,
-                fileShelfController: FileShelfController) {
+                fileShelfController: FileShelfController,
+                thresholds: MetricThresholds = .standard) {
         self.deps = ModuleDependencies(
             apiClient: apiClient, timerController: timerController,
-            clipboardController: clipboardController, fileShelfController: fileShelfController)
+            clipboardController: clipboardController, fileShelfController: fileShelfController,
+            thresholds: thresholds)
     }
 
     /// Build the module named by `binding`, applying its settings, or `nil` if

@@ -43,7 +43,9 @@ public struct DiskModule: NotchModule {
         requiresConnection: false
     )
 
-    public init() {}
+    private let thresholds: MetricThresholds
+
+    public init(thresholds: MetricThresholds = .standard) { self.thresholds = thresholds }
 
     public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<DiskSample>> {
         let path = context.settings["path"] ?? "/"
@@ -54,32 +56,27 @@ public struct DiskModule: NotchModule {
     }
 
     public func face(for value: DiskSample, in slot: Slot) -> PillFace {
-        Self.face(for: value)
+        faceFor(value)
     }
 
     public func detail(for value: DiskSample) -> [DetailRow] {
-        let f = Self.face(for: value)
         return [DetailRow(id: "disk", title: "Disk free",
                           subtitle: "\(ByteFormat.storage(UInt64(max(0, value.freeBytes)))) free · \(value.usedPercent)% used",
-                          tint: f.tint, symbolName: "externaldrive")]
+                          tint: thresholds.diskTint(value.usedPercent), symbolName: "externaldrive")]
     }
 
     public func notification(for value: DiskSample, previous: DiskSample?) -> ModuleAlert? {
-        guard value.usedPercent >= 90, let previous, previous.usedPercent < 90 else { return nil }
+        let critical = thresholds.diskCritical
+        guard value.usedPercent >= critical, let previous, previous.usedPercent < critical else { return nil }
         // Distinct id per rising edge so refilling the disk later re-warns.
         return ModuleAlert(id: "disk-low-\(AlertEpisode.token())", title: "Disk almost full",
                            body: "\(ByteFormat.storage(UInt64(max(0, value.freeBytes)))) free — free space to avoid slowdowns.")
     }
 
-    static func face(for sample: DiskSample) -> PillFace {
+    private func faceFor(_ sample: DiskSample) -> PillFace {
         let free = ByteFormat.storage(UInt64(max(0, sample.freeBytes)))
         return PillFace(text: "Disk \(free)", symbolName: "externaldrive",
-                        tint: tint(sample.usedPercent),
+                        tint: thresholds.diskTint(sample.usedPercent),
                         tooltip: "\(free) free · \(sample.usedPercent)% used")
-    }
-    /// Under 85% used is fine, 85–95% getting tight, over 95% critical.
-    static func tint(_ usedPercent: Int) -> Tint {
-        // Disk fills later than CPU/RAM, so warn/critical sit higher.
-        Tint.forUsage(percent: usedPercent, warn: 85, critical: 95)
     }
 }

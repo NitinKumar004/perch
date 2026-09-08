@@ -70,13 +70,18 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
     /// Whether alerts also show as a transient banner in the notch (in addition
     /// to the macOS notification). Defaults on.
     public var notchBanner: Bool
+    /// User-tunable warn/critical levels for the system metrics (CPU, memory,
+    /// swap, disk, load). Defaults to sensible standard levels.
+    public var thresholds: MetricThresholds
 
     public init(autoOpenOnRed: Bool = false, quietHours: String? = nil,
-                theme: String = "system", notchBanner: Bool = true) {
+                theme: String = "system", notchBanner: Bool = true,
+                thresholds: MetricThresholds = .standard) {
         self.autoOpenOnRed = autoOpenOnRed
         self.quietHours = quietHours
         self.theme = theme
         self.notchBanner = notchBanner
+        self.thresholds = thresholds
     }
 
     public init(from decoder: Decoder) throws {
@@ -85,6 +90,7 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
         quietHours = try c.decodeIfPresent(String.self, forKey: .quietHours)
         theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? "system"
         notchBanner = try c.decodeIfPresent(Bool.self, forKey: .notchBanner) ?? true
+        thresholds = try c.decodeIfPresent(MetricThresholds.self, forKey: .thresholds) ?? .standard
     }
 
     /// Parse `quietHours` into (startMinuteOfDay, endMinuteOfDay), or nil if

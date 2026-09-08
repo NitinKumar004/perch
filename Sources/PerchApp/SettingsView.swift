@@ -1,4 +1,5 @@
 import SwiftUI
+import PerchCore
 import PerchConfig
 import PerchModules
 import PerchNotchUI
@@ -24,6 +25,7 @@ struct SettingsView: View {
     @State private var quietHours: String
     @State private var theme: String
     @State private var notchBanner: Bool
+    @State private var thresholds: MetricThresholds
     @State private var config: LayoutConfig       // the whole layout being edited
     @State private var activePreset: String       // the preset key currently shown
     @State private var presetNameField: String    // editable name of the active preset
@@ -76,6 +78,7 @@ struct SettingsView: View {
         _quietHours = State(initialValue: config.global.quietHours ?? "")
         _theme = State(initialValue: config.global.theme)
         _notchBanner = State(initialValue: config.global.notchBanner)
+        _thresholds = State(initialValue: config.global.thresholds)
     }
 
     var body: some View {
@@ -92,6 +95,8 @@ struct SettingsView: View {
                     themeSection
                     Divider()
                     behaviourSection
+                    Divider()
+                    thresholdsSection
                     Divider()
                     slotSection(title: "Left pill",
                                 caption: "The icon just left of the notch.",
@@ -324,6 +329,58 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder).frame(width: 130)
                 Text("no notifications in this window").font(.system(size: 11)).foregroundStyle(.secondary)
             }
+        }
+    }
+
+    // MARK: - Alert levels (user-tunable thresholds)
+
+    private var thresholdsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Alert levels").font(.system(size: 13, weight: .semibold))
+            Text("When each metric turns amber (warn) and red (critical). Red is what pops the panel.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+            thresholdRow("CPU", unit: "%",
+                         warn: $thresholds.cpuWarn, critical: $thresholds.cpuCritical, range: 10...100, step: 5)
+            thresholdRow("Memory", unit: "%",
+                         warn: $thresholds.memoryWarn, critical: $thresholds.memoryCritical, range: 10...100, step: 5)
+            thresholdRow("Disk used", unit: "%",
+                         warn: $thresholds.diskWarn, critical: $thresholds.diskCritical, range: 10...100, step: 5)
+            thresholdRowDouble("Swap", unit: "GB",
+                               warn: $thresholds.swapWarnGB, critical: $thresholds.swapCriticalGB, range: 0.5...64, step: 0.5)
+            thresholdRowDouble("Load / core", unit: "×",
+                               warn: $thresholds.loadWarnRatio, critical: $thresholds.loadCriticalRatio, range: 0.2...4, step: 0.1)
+            Button("Reset to defaults") { thresholds = .standard }
+                .controlSize(.small).font(.system(size: 11))
+            Text("Thermal follows macOS's own throttle-pressure signal — not a level you set.")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+        }
+    }
+
+    private func thresholdRow(_ label: String, unit: String,
+                              warn: Binding<Int>, critical: Binding<Int>,
+                              range: ClosedRange<Int>, step: Int) -> some View {
+        HStack(spacing: 8) {
+            Text(label).font(.system(size: 12)).frame(width: 90, alignment: .leading)
+            Stepper(value: warn, in: range, step: step) {
+                Text("warn \(warn.wrappedValue)\(unit)").font(.system(size: 11)).foregroundStyle(Color.orange)
+            }.frame(width: 150)
+            Stepper(value: critical, in: range, step: step) {
+                Text("red \(critical.wrappedValue)\(unit)").font(.system(size: 11)).foregroundStyle(Color.red)
+            }.frame(width: 150)
+        }
+    }
+
+    private func thresholdRowDouble(_ label: String, unit: String,
+                                    warn: Binding<Double>, critical: Binding<Double>,
+                                    range: ClosedRange<Double>, step: Double) -> some View {
+        HStack(spacing: 8) {
+            Text(label).font(.system(size: 12)).frame(width: 90, alignment: .leading)
+            Stepper(value: warn, in: range, step: step) {
+                Text("warn \(warn.wrappedValue, specifier: "%.1f")\(unit)").font(.system(size: 11)).foregroundStyle(Color.orange)
+            }.frame(width: 150)
+            Stepper(value: critical, in: range, step: step) {
+                Text("red \(critical.wrappedValue, specifier: "%.1f")\(unit)").font(.system(size: 11)).foregroundStyle(Color.red)
+            }.frame(width: 150)
         }
     }
 
@@ -603,7 +660,8 @@ struct SettingsView: View {
         let trimmed = quietHours.trimmingCharacters(in: .whitespaces)
         out.global = GlobalSettings(autoOpenOnRed: autoOpenOnRed,
                                     quietHours: trimmed.isEmpty ? nil : trimmed,
-                                    theme: theme, notchBanner: notchBanner)
+                                    theme: theme, notchBanner: notchBanner,
+                                    thresholds: thresholds)
         onSave(out)
     }
 

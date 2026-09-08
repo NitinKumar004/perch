@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import PerchCore
 @testable import PerchConfig
 
 /// Each test runs against a fresh temp directory so nothing touches the real
@@ -76,9 +77,14 @@ private func tempConfigURL() -> URL {
     let url = tempConfigURL()
     let store = ConfigStore(fileURL: url)
     var config = LayoutConfig(activePreset: "default", presets: ["default": Preset()])
-    config.global = GlobalSettings(autoOpenOnRed: true, quietHours: "22:00-08:00", theme: "nord", notchBanner: false)
+    var thresholds = MetricThresholds.standard
+    thresholds.swapCriticalGB = 12       // a user-tuned level
+    thresholds.cpuWarn = 60
+    config.global = GlobalSettings(autoOpenOnRed: true, quietHours: "22:00-08:00", theme: "nord",
+                                   notchBanner: false, thresholds: thresholds)
     try store.save(config)
     #expect(store.load().global == config.global)
+    #expect(store.load().global.thresholds.swapCriticalGB == 12)   // custom levels persist
 
     // A v1-style file with no `global` key still loads with defaults.
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

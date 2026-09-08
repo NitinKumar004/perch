@@ -159,34 +159,53 @@ import PerchModuleKit
     #expect(ThermalModule().face(for: .critical, in: .rightPill).progress == 1.0)
 }
 
+@Test func sustainedVitalAlertIgnoresSpikesFiresOncePerSpell() {
+    func vs(_ h: [Int]) -> VitalSeries { VitalSeries(current: h.last ?? 0, history: h) }
+    let crit = 90
+    // A brief spike (not sustained) never notifies.
+    #expect(sustainedVitalAlert(label: "Memory", idPrefix: "memory", value: vs([50, 50, 95, 50]), critical: crit) == nil)
+    #expect(sustainedVitalAlert(label: "Memory", idPrefix: "memory", value: vs([50, 50, 50, 50, 50, 95]), critical: crit) == nil)
+    // A real below→sustained rising edge (a below sample, then 5 criticals) fires once.
+    #expect(sustainedVitalAlert(label: "Memory", idPrefix: "memory", value: vs([50, 91, 92, 93, 94, 95]), critical: crit) != nil)
+    // Mid-spell (already sustained) does NOT re-fire — one notification per spell.
+    #expect(sustainedVitalAlert(label: "Memory", idPrefix: "memory", value: vs([91, 92, 93, 94, 95, 96]), critical: crit) == nil)
+    // Maxed since launch with no observed below sample stays silent (baseline).
+    #expect(sustainedVitalAlert(label: "Memory", idPrefix: "memory", value: vs([91, 92, 93, 94, 95]), critical: crit) == nil)
+    // Recovered below critical → nil.
+    #expect(sustainedVitalAlert(label: "Memory", idPrefix: "memory", value: vs([91, 92, 93, 94, 80]), critical: crit) == nil)
+}
+
 @Test func swapThresholdsAndHumanFormat() {
     let gb: UInt64 = 1_073_741_824
-    #expect(SwapModule.tint(0) == .good)
-    #expect(SwapModule.tint(gb / 2) == .good)
-    #expect(SwapModule.tint(gb) == .warning)
-    #expect(SwapModule.tint(4 * gb) == .critical)
+    let t = MetricThresholds.standard   // warn 2 GB, critical 6 GB
+    #expect(t.swapTint(bytes: 0) == .good)
+    #expect(t.swapTint(bytes: gb) == .good)          // 1 GB — under warn
+    #expect(t.swapTint(bytes: 3 * gb) == .warning)   // 3 GB — over warn, under red
+    #expect(t.swapTint(bytes: 7 * gb) == .critical)  // 7 GB — over red
     // (ByteFormat.size/.rate are covered canonically in PerchCoreTests.)
-    let m = SwapModule()
-    #expect(m.notification(for: 4 * gb, previous: gb) != nil)   // crossed 3 GB
-    #expect(m.notification(for: 4 * gb, previous: 4 * gb) == nil)
+    let m = SwapModule()   // defaults
+    #expect(m.notification(for: 7 * gb, previous: gb) != nil)   // crossed 6 GB
+    #expect(m.notification(for: 7 * gb, previous: 7 * gb) == nil)
     #expect(m.face(for: 0, in: .rightPill).text == "Swap 0")
 }
 
 @Test func loadRatioTint() {
     func s(_ load: Double, _ cores: Int) -> LoadSample { LoadSample(oneMinute: load, cores: cores) }
+    let t = MetricThresholds.standard   // warn 0.9×, critical 1.5× per core
     #expect(s(2, 8).ratio == 0.25)
-    #expect(LoadModule.tint(s(2, 8).ratio) == .good)      // 0.25/core
-    #expect(LoadModule.tint(s(6, 8).ratio) == .warning)   // 0.75/core
-    #expect(LoadModule.tint(s(10, 8).ratio) == .critical) // 1.25/core
+    #expect(t.loadTint(ratio: 0.25) == .good)
+    #expect(t.loadTint(ratio: 1.0) == .warning)    // fully committed
+    #expect(t.loadTint(ratio: 2.0) == .critical)   // oversubscribed
     #expect(LoadModule().face(for: s(3.4, 8), in: .rightPill).text == "Load 3.4")
 }
 
 @Test func diskUsedPercentAndTint() {
     let s = DiskSample(freeBytes: 20_000_000_000, totalBytes: 100_000_000_000)
     #expect(s.usedPercent == 80)
-    #expect(DiskModule.tint(80) == .good)
-    #expect(DiskModule.tint(88) == .warning)
-    #expect(DiskModule.tint(97) == .critical)
+    let t = MetricThresholds.standard   // warn 85%, critical 95%
+    #expect(t.diskTint(80) == .good)
+    #expect(t.diskTint(88) == .warning)
+    #expect(t.diskTint(97) == .critical)
     #expect(DiskSample.zero.usedPercent == 0)   // no divide-by-zero
     // Purgeable space can make "free" exceed total → used must clamp to 0, not go negative.
     #expect(DiskSample(freeBytes: 250_000_000_000, totalBytes: 245_000_000_000).usedPercent == 0)

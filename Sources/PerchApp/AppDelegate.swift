@@ -127,7 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     title: "Perch \(info.version) is available",
                     body: "Open Perch’s panel → “Update to \(info.version)” to install.",
                     url: info.pageURL)
-                if notifier.post(alert) == .delivered, self.showNotchBanner, !self.model.isPanelOpen {
+                if notifier.post(alert) == .delivered, self.showNotchBanner {
                     self.bannerPresenter?.show(BannerAlert(
                         id: alert.id, title: alert.title, body: alert.body, tint: .accent, url: alert.url))
                 }
@@ -192,7 +192,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let factory = ModuleFactory(apiClient: GitHubAPIClient(auth: auth),
                                     timerController: timerController,
                                     clipboardController: clipboardController,
-                                    fileShelfController: fileShelfController)
+                                    fileShelfController: fileShelfController,
+                                    thresholds: config.global.thresholds)
         let binder = SlotBinder(model: model, context: ModuleContext(), notifier: notifier,
                                 onCritical: { [weak self] in
                                     guard autoOpenOnRed else { return }

@@ -1,4 +1,5 @@
 import Foundation
+import PerchCore
 
 /// Reads and writes the user's `layout.json`, defensively.
 ///
@@ -14,12 +15,7 @@ public struct ConfigStore: Sendable {
     private var fileManager: FileManager { .default }
 
     /// The canonical config location, `~/.config/perch/layout.json`.
-    public static var defaultFileURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config", isDirectory: true)
-            .appendingPathComponent("perch", isDirectory: true)
-            .appendingPathComponent("layout.json")
-    }
+    public static var defaultFileURL: URL { PerchPaths.configFile("layout.json") }
 
     /// - Parameter fileURL: where the config lives. Defaults to
     ///   `~/.config/perch/layout.json`.

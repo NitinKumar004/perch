@@ -24,6 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The pending auto-close for an auto-opened panel, cancelled if the user
     /// takes over or keeps the pointer on it.
     private var autoCloseTask: Task<Void, Never>?
+    /// UserDefaults key: the update version we've already nudged about, so the
+    /// "vX is available" banner fires once per version, not every launch.
+    private static let lastNotifiedUpdateKey = "perch.lastNotifiedUpdateVersion"
     /// Whether the pointer is currently over the panel — pauses the auto-close
     /// countdown while you're reading it (even across a second red event).
     private var panelHovered = false
@@ -43,13 +46,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     private let configStore = ConfigStore()
-    private let settingsWindow = SettingsWindowController()
-    private let welcomeWindow = WelcomeWindowController()
-    private let deviceCodeWindow = DeviceCodeWindowController()
+    // One activation-policy coordinator shared by every normal window, so the app
+    // only drops back to a background agent once the last of them closes.
+    private let activation = ActivationPolicyManager()
+    private lazy var settingsWindow = SettingsWindowController(activation: activation)
+    private lazy var welcomeWindow = WelcomeWindowController(activation: activation)
+    private lazy var deviceCodeWindow = DeviceCodeWindowController(activation: activation)
     private let notifier = Notifier()
     private let timerController = TimerController()
     private let clipboardController = ClipboardController()
     private let fileShelfController = FileShelfController()
+    /// One long-lived CI-run history store, created once and reused across every
+    /// hot-reload rebuild, so the learned build ETAs share a single actor backing
+    /// the on-disk file (a fresh store per rebuild could race the file on save).
+    private let runHistory = RunHistoryStore()
     private let updateChecker = UpdateChecker()
     private var configWatcher: ConfigWatcher?
     private var updateItem: NSMenuItem?
@@ -132,14 +142,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if userInitiated {
                 self.installUpdate(info)
             } else {
-                let alert = ModuleAlert(
-                    id: "perch-update-\(info.version)",
-                    title: "Perch \(info.version) is available",
-                    body: "Open Perch’s panel → “Update to \(info.version)” to install.",
-                    url: info.pageURL)
-                if notifier.post(alert) == .delivered, self.showNotchBanner {
-                    self.bannerPresenter?.show(BannerAlert(
-                        id: alert.id, title: alert.title, body: alert.body, tint: .accent, url: alert.url))
+                // Nudge (banner + notification) ONCE per version — the Notifier's
+                // dedup is in-memory and resets each launch, so without a persisted
+                // marker this fired on every single launch. The menu/Settings
+                // button (set above) still shows the update quietly regardless.
+                let key = Self.lastNotifiedUpdateKey
+                let lastNotified = UserDefaults.standard.string(forKey: key)
+                if UpdateNudge.shouldNotify(available: info.version, lastNotified: lastNotified) {
+                    UserDefaults.standard.set(info.version, forKey: key)
+                    let alert = ModuleAlert(
+                        id: "perch-update-\(info.version)",
+                        title: "Perch \(info.version) is available",
+                        body: "Open Perch’s panel → “Update to \(info.version)” to install.",
+                        url: info.pageURL)
+                    if notifier.post(alert) == .delivered, self.showNotchBanner {
+                        self.bannerPresenter?.show(BannerAlert(
+                            id: alert.id, title: alert.title, body: alert.body, tint: .accent, url: alert.url))
+                    }
                 }
             }
         }
@@ -203,7 +222,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     timerController: timerController,
                                     clipboardController: clipboardController,
                                     fileShelfController: fileShelfController,
-                                    thresholds: config.global.thresholds)
+                                    thresholds: config.global.thresholds,
+                                    runHistory: runHistory)
         let binder = SlotBinder(model: model, context: ModuleContext(), notifier: notifier,
                                 pacing: config.global.pacing,
                                 onCritical: { [weak self] in

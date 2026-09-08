@@ -56,6 +56,7 @@ struct PanelView: View {
     @State private var draggingID: String?      // the section being dragged
     @State private var order: [String] = []     // working display order (live during a drag)
     @State private var expanded: Set<String> = []  // sections showing their full list
+    @State private var copiedRowID: String?        // row whose link was just copied (brief ✓)
     @Environment(\.palette) private var palette
 
     var body: some View {
@@ -435,6 +436,19 @@ struct PanelView: View {
             } else {
                 content
             }
+            // Copy the row's link (a PR, a notification, a build) so it can be
+            // shared without opening it. A brief checkmark confirms the copy.
+            if let urlString = row.url {
+                let copied = copiedRowID == row.id
+                Button { copyLink(urlString, rowID: row.id) } label: {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 11))
+                        .foregroundStyle(copied ? palette.good : palette.ink(0.4))
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, row.secondaryAction == nil ? 12 : 6)
+                .help(copied ? "Copied!" : "Copy link")
+            }
             if let secondary = row.secondaryAction {
                 Button { actions.onAction(secondary) } label: {
                     Image(systemName: row.secondaryIcon ?? "xmark.circle.fill")
@@ -445,6 +459,19 @@ struct PanelView: View {
                 .padding(.trailing, 12)
                 .help("Remove")
             }
+        }
+    }
+
+    /// Copy a row's link to the clipboard and show a short-lived checkmark on that
+    /// row. Re-copying a different row moves the checkmark; the confirmation
+    /// clears itself after a moment.
+    private func copyLink(_ urlString: String, rowID: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(urlString, forType: .string)
+        withAnimation(.easeOut(duration: 0.15)) { copiedRowID = rowID }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.2))
+            if copiedRowID == rowID { withAnimation(.easeOut(duration: 0.2)) { copiedRowID = nil } }
         }
     }
 

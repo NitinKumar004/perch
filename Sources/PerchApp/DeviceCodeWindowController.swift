@@ -10,6 +10,11 @@ import Observation
 final class DeviceCodeWindowController {
     private var window: NSWindow?
     private let state = DeviceCodeState()
+    private let activation: ActivationPolicyManager
+
+    init(activation: ActivationPolicyManager) {
+        self.activation = activation
+    }
 
     /// Present the code (auto-copied) and the verification URL.
     func show(code: String, verificationUri: String) {
@@ -19,8 +24,7 @@ final class DeviceCodeWindowController {
         copyCode()
 
         if let window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            activation.present(window)
             return
         }
         let view = DeviceCodeView(state: state, onCopy: { [weak self] in self?.copyCode() },
@@ -32,8 +36,7 @@ final class DeviceCodeWindowController {
         window.isReleasedWhenClosed = false
         window.center()
         self.window = window
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        activation.present(window)
     }
 
     func markConnected() {

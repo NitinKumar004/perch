@@ -1,6 +1,32 @@
 import AppKit
 import SwiftUI
 
+/// The panel's content view. The notch window is deliberately wide (so the pills
+/// can flank the physical notch and stay centred), which means most of it floats
+/// over the menu bar's app menus and menu-bar extras. `NSHostingView` claims
+/// every click inside its bounds regardless of what SwiftUI draws there, so a
+/// plain host would swallow those menu clicks. This container instead hit-tests
+/// ONLY the frames SwiftUI reports as interactive (the pills, the banner, the
+/// open panel) and returns nil everywhere else — so every other click falls
+/// straight through to whatever is beneath (the menu bar).
+final class PassThroughView: NSView {
+    /// Interactive regions in this view's own (flipped, top-left) coordinates,
+    /// pushed from SwiftUI as the pills/banner/panel change.
+    var interactiveFrames: [CGRect] = []
+
+    // Match SwiftUI's top-left origin so reported frames map without flipping.
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // `point` is in the superview's coordinates; bring it into ours.
+        let local = convert(point, from: superview)
+        guard interactiveFrames.contains(where: { $0.contains(local) }) else {
+            return nil   // not on a pill/panel → let the menu bar have the click
+        }
+        return super.hitTest(point)
+    }
+}
+
 /// Owns the borderless, non-activating panel that floats at the notch.
 ///
 /// The window never steals focus (`.nonactivatingPanel`), floats above normal
@@ -16,6 +42,16 @@ import SwiftUI
 public final class NotchWindowController {
     private let panel: NSPanel
     private let model: NotchViewModel
+    /// The pass-through content view — holds the live interactive frames used to
+    /// decide, per cursor position, whether the window should catch clicks.
+    private let container: PassThroughView
+    /// Cursor monitors that flip `ignoresMouseEvents`: the global one sees moves
+    /// while the window is transparent (event went to the app beneath), the local
+    /// one sees moves while it's catching clicks (over a pill). Between them the
+    /// toggle always tracks the cursor. Removed on deinit.
+    // Set once on the main actor at init; only read back in deinit to remove.
+    nonisolated(unsafe) private var globalMouseMonitor: Any?
+    nonisolated(unsafe) private var localMouseMonitor: Any?
 
     // Generous zone on each side of the notch so a wide pill (e.g. a Combined
     // "CPU 32% · RAM 61% · ↓ 25 KB/s") never runs under the notch and clips.
@@ -43,22 +79,93 @@ public final class NotchWindowController {
         panel.isOpaque = false
         panel.hasShadow = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
-        panel.ignoresMouseEvents = false
+        // Start transparent to the mouse — the window is wide and floats over the
+        // menu bar, so by default every click must reach the menu bar beneath. We
+        // flip this to `false` only while the cursor is actually over a pill/panel
+        // (see updateClickThrough). `ignoresMouseEvents` is the ONLY thing that
+        // makes a click reach the system menu bar under us — hitTest can't.
+        panel.ignoresMouseEvents = true
+        panel.acceptsMouseMovedEvents = true
 
-        let root = NotchRootView(model: model, onActivate: onActivate, panelActions: panelActions)
+        // A pass-through container that also tracks which sub-frames are the
+        // pills/panel, so the cursor monitors know where clicks should land.
+        container = PassThroughView(frame: NSRect(x: 0, y: 0, width: 600, height: 34))
+        let root = NotchRootView(
+            model: model, onActivate: onActivate, panelActions: panelActions,
+            onInteractiveFrames: { [weak self] frames in
+                self?.container.interactiveFrames = frames
+                self?.updateClickThrough()   // frames changed → re-evaluate now
+            })
         let hosting = NSHostingView(rootView: root)
+        hosting.frame = container.bounds
         hosting.autoresizingMask = [.width, .height]
-        panel.contentView = hosting
+        container.addSubview(hosting)
+        panel.contentView = container
 
         applyGeometry()
+        installMouseMonitors()
 
         // Reposition on any display change.
         NotificationCenter.default.addObserver(
             self, selector: #selector(screensChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
+
+        // After sleep/wake or screen-unlock the cursor can be resting over a pill
+        // with no `mouseMoved` to re-evaluate the toggle — which would leave the
+        // window transparent and eat the first click. Resync the click-through
+        // state on each of those wake events so the very first click lands right.
+        for name: NSNotification.Name in [
+            NSWorkspace.screensDidWakeNotification,
+            NSWorkspace.didWakeNotification,
+            NSWorkspace.sessionDidBecomeActiveNotification,
+        ] {
+            NSWorkspace.shared.notificationCenter.addObserver(
+                self, selector: #selector(cursorMayHaveJumped), name: name, object: nil)
+        }
     }
 
-    deinit { NotificationCenter.default.removeObserver(self) }
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        if let m = globalMouseMonitor { NSEvent.removeMonitor(m) }
+        if let m = localMouseMonitor { NSEvent.removeMonitor(m) }
+    }
+
+    /// A wake/unlock may have moved the cursor's relationship to the window with
+    /// no `mouseMoved` — re-evaluate the click-through toggle from scratch.
+    @objc private func cursorMayHaveJumped() { updateClickThrough() }
+
+    /// Watch the cursor so the window catches clicks only while it's over a pill
+    /// or the open panel, and is otherwise transparent to the mouse (letting the
+    /// menu bar beneath receive the click).
+    private func installMouseMonitors() {
+        // Both fire on the main thread; run the update synchronously so the toggle
+        // is set before any following mouse-down is delivered.
+        // Fires while the window is transparent (the move went to the app beneath).
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateClickThrough() }
+        }
+        // Fires while the window is catching clicks (cursor over a pill), so we
+        // notice the moment it leaves and can go transparent again.
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { [weak self] event in
+            MainActor.assumeIsolated { self?.updateClickThrough() }
+            return event
+        }
+    }
+
+    /// Set `ignoresMouseEvents` from the live cursor position: opaque to the mouse
+    /// only over an interactive frame, transparent everywhere else.
+    private func updateClickThrough() {
+        let screenPoint = NSEvent.mouseLocation
+        let windowPoint = panel.convertPoint(fromScreen: screenPoint)
+        // Into the (flipped) container's coordinates, matching the reported frames.
+        let local = container.convert(windowPoint, from: nil)
+        let overInteractive = container.interactiveFrames.contains { $0.contains(local) }
+        // Only toggle on change — avoids churning the window server every move.
+        if panel.ignoresMouseEvents == overInteractive {
+            panel.ignoresMouseEvents = !overInteractive
+        }
+    }
 
     public func show() { panel.orderFrontRegardless() }
     public func hide() { panel.orderOut(nil) }

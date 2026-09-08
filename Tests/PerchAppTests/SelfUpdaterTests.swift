@@ -34,6 +34,15 @@ import Foundation
     #expect(SelfUpdater.shellQuote("/plain/path") == "'/plain/path'")
 }
 
+@Test func updateNudgeFiresOncePerVersion() {
+    // Never told before → nudge.
+    #expect(UpdateNudge.shouldNotify(available: "1.6.1", lastNotified: nil))
+    // Already told about this exact version → stay quiet (no every-launch nag).
+    #expect(!UpdateNudge.shouldNotify(available: "1.6.1", lastNotified: "1.6.1"))
+    // A newer version than the one we last mentioned → nudge again.
+    #expect(UpdateNudge.shouldNotify(available: "1.6.2", lastNotified: "1.6.1"))
+}
+
 @MainActor
 @Test func bundleURLNilWhenUnbundled() {
     // Under `swift test` there's no .app bundle, so the updater reports it can't

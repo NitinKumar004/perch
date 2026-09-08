@@ -25,6 +25,13 @@ public struct ModuleContext: Sendable {
         return Swift.max(minimum, value)
     }
 
+    /// A raw string setting, or `fallback` when unset or empty (a blank field
+    /// reads as "use the default", not as an empty choice).
+    public func setting(_ key: String, fallback: String) -> String {
+        guard let raw = settings[key], !raw.isEmpty else { return fallback }
+        return raw
+    }
+
     /// A boolean setting stored as "true"/"false", or `fallback` if unset.
     public func bool(_ key: String, fallback: Bool) -> Bool {
         guard let raw = settings[key] else { return fallback }

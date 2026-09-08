@@ -258,6 +258,7 @@ import PerchModuleKit
     #expect(DiskModule.descriptor.opensPanelOnCritical)
 }
 
+
 // MARK: - Network
 // (ByteFormat.rate is covered canonically in PerchCoreTests.)
 

@@ -15,11 +15,12 @@ public struct ModuleFactory: Sendable {
     public init(apiClient: GitHubAPIClient, timerController: TimerController,
                 clipboardController: ClipboardController,
                 fileShelfController: FileShelfController,
-                thresholds: MetricThresholds = .standard) {
+                thresholds: MetricThresholds = .standard,
+                runHistory: RunHistoryStore = RunHistoryStore()) {
         self.deps = ModuleDependencies(
             apiClient: apiClient, timerController: timerController,
             clipboardController: clipboardController, fileShelfController: fileShelfController,
-            thresholds: thresholds)
+            thresholds: thresholds, runHistory: runHistory)
     }
 
     /// Build the module named by `binding`, applying its settings, or `nil` if

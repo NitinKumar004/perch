@@ -9,6 +9,11 @@ import PerchNotchUI
 @MainActor
 final class SettingsWindowController {
     private var window: NSWindow?
+    private let activation: ActivationPolicyManager
+
+    init(activation: ActivationPolicyManager) {
+        self.activation = activation
+    }
 
     /// Show the settings window for `config`; `onSave` receives the edited
     /// config to persist and apply. `isConnected`/`onConnect` let the window show
@@ -51,7 +56,9 @@ final class SettingsWindowController {
             self.window = window
         }
 
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        // Perch is a background agent, which can't be foregrounded — the manager
+        // promotes it to `.regular` so Settings takes focus in place (instead of
+        // macOS surfacing another app), and reverts once every window has closed.
+        activation.present(window)
     }
 }

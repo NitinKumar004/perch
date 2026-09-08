@@ -7,11 +7,15 @@ import SwiftUI
 @MainActor
 final class WelcomeWindowController {
     private var window: NSWindow?
+    private let activation: ActivationPolicyManager
+
+    init(activation: ActivationPolicyManager) {
+        self.activation = activation
+    }
 
     func show(onConnect: @escaping () -> Void, onOpenSettings: @escaping () -> Void) {
         if let window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            activation.present(window)
             return
         }
         let view = WelcomeView(
@@ -26,8 +30,7 @@ final class WelcomeWindowController {
         window.isReleasedWhenClosed = false
         window.center()
         self.window = window
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        activation.present(window)
     }
 }
 

@@ -24,16 +24,21 @@ public struct ModuleDependencies: Sendable {
     /// User-tunable warn/critical levels, injected so the metric modules colour
     /// by the user's chosen levels — the same whether shown alone or in Combined.
     public let thresholds: MetricThresholds
+    /// Shared local store of past CI run durations, so the build activity learns
+    /// an ETA. One instance across modules (persisted, per repo·workflow).
+    public let runHistory: RunHistoryStore
 
     public init(apiClient: GitHubAPIClient, timerController: TimerController,
                 clipboardController: ClipboardController,
                 fileShelfController: FileShelfController,
-                thresholds: MetricThresholds = .standard) {
+                thresholds: MetricThresholds = .standard,
+                runHistory: RunHistoryStore = RunHistoryStore()) {
         self.apiClient = apiClient
         self.timerController = timerController
         self.clipboardController = clipboardController
         self.fileShelfController = fileShelfController
         self.thresholds = thresholds
+        self.runHistory = runHistory
     }
 }
 
@@ -73,12 +78,24 @@ public enum ModuleSpecs {
                 ModuleSetting(key: "repo", label: "Repository", placeholder: "owner/name"),
                 ModuleSetting(key: "branch", label: "Branch", placeholder: "main", defaultValue: "main"),
                 refreshSetting("60"),
+                // Build-activity controls (a running build shows a progress + ETA):
+                ModuleSetting(key: "activity", label: "Live progress while running",
+                              placeholder: "", defaultValue: "true", kind: .toggle),
+                ModuleSetting(key: "eta", label: "ETA estimate", placeholder: "",
+                              defaultValue: "learned",
+                              options: [
+                                SettingOption(value: "learned", label: "Learn from my past runs"),
+                                SettingOption(value: "off", label: "Off (show elapsed only)"),
+                              ]),
+                ModuleSetting(key: "etaWindow", label: "Runs to average for ETA",
+                              placeholder: "10", defaultValue: "10"),
              ]) { binding, deps in
             let repo = binding.settings["repo"] ?? "NitinKumar004/perch"
             let branch = binding.settings["branch"] ?? "main"
             let parts = repo.split(separator: "/", maxSplits: 1).map(String.init)
             guard parts.count == 2 else { return nil }
-            return AnyNotchModule(GitHubBuildsModule(client: deps.apiClient, owner: parts[0], repo: parts[1], branch: branch))
+            return AnyNotchModule(GitHubBuildsModule(client: deps.apiClient, owner: parts[0], repo: parts[1],
+                                                     branch: branch, history: deps.runHistory))
         },
 
         spec(GitHubPRsModule.self, category: .github, tag: "review queue",

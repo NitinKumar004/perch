@@ -9,6 +9,17 @@ enum PerchVersion {
     }
 }
 
+/// Decides whether to actively NUDGE about an available update (a banner + macOS
+/// notification), vs just quietly reflecting it in the menu/Settings button. We
+/// nudge once per version — not on every launch — so a user who's already been
+/// told "vX is available" isn't nagged each time they open Perch; a genuinely
+/// newer version nudges again.
+enum UpdateNudge {
+    static func shouldNotify(available: String, lastNotified: String?) -> Bool {
+        available != lastNotified
+    }
+}
+
 /// An available newer release.
 struct UpdateInfo: Sendable, Equatable {
     let version: String

@@ -19,13 +19,19 @@ private struct StubGitHubHTTP: HTTPClient {
     var checksState = "SUCCESS"
     var checksTotal = 10
     var runsConclusion = "success"
+    // Build-run shape (defaults = a completed run, 60s long). Override to script a
+    // still-running build for the build-activity tests.
+    var runStatus = "completed"
+    var runStarted = "2026-09-06T09:59:00Z"
+    var runUpdated = "2026-09-06T10:00:00Z"
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let path = request.url.path
         let headers = ["X-RateLimit-Remaining": "4999", "X-RateLimit-Reset": "\(Int(Date().timeIntervalSince1970) + 3600)", "ETag": "\"e\""]
         if path.hasSuffix("/actions/runs") {
+            let conclusion = runStatus == "completed" ? "\"\(runsConclusion)\"" : "null"
             let body = """
-            {"workflow_runs":[{"status":"completed","conclusion":"\(runsConclusion)","updated_at":"2026-09-06T10:00:00Z","run_started_at":"2026-09-06T09:59:00Z","html_url":"https://github.com/o/r/actions/runs/1","name":"CI","head_branch":"main","head_sha":"abcdef1234567"}]}
+            {"workflow_runs":[{"status":"\(runStatus)","conclusion":\(conclusion),"updated_at":"\(runUpdated)","run_started_at":"\(runStarted)","html_url":"https://github.com/o/r/actions/runs/1","name":"CI","head_branch":"main","head_sha":"abcdef1234567"}]}
             """
             return HTTPResponse(status: 200, body: Data(body.utf8), headers: headers)
         }
@@ -175,6 +181,95 @@ private func firstRender(_ module: AnyNotchModule,
         previous: PRState(count: 2, items: [pr(1), pr(2)]))
     #expect(many?.title == "#1 feat 1")
     #expect(many?.body.contains("+1 more") == true)
+}
+
+@Test func buildRowIDsAreUniquePerRepo() {
+    // Two Builds sections watching different repos must NOT share a row id —
+    // otherwise a per-row action (copy-link) fires on both. The id keys off the
+    // stable repo path, not the run id (which changes every build).
+    func rowID(_ url: String) -> String {
+        GitHubBuildsModule(client: stubbedClient(), owner: "o", repo: "r")
+            .detail(for: BuildInfo(state: .passing, workflowName: "CI", branch: "main",
+                                   shortSHA: "abc", durationText: "1m", url: url)).first!.id
+    }
+    #expect(rowID("https://github.com/o/api/actions/runs/1") != rowID("https://github.com/o/web/actions/runs/9"))
+    // Same repo, a new run (different run id) → SAME stable id (no re-animate).
+    #expect(rowID("https://github.com/o/api/actions/runs/1") == rowID("https://github.com/o/api/actions/runs/2"))
+}
+
+@Test func buildActivityShowsProgressAndETAWhileRunning() {
+    let m = GitHubBuildsModule(client: stubbedClient(), owner: "o", repo: "r")
+    // Running, 1m in, learned 5m total → the pill fills to 20% with a countdown.
+    let running = BuildInfo(state: .running, workflowName: "CI", branch: "main",
+                            shortSHA: "abc", durationText: "1m",
+                            url: "https://github.com/o/r/actions/runs/1",
+                            elapsedSeconds: 60, predictedSeconds: 300)
+    let face = m.face(for: running, in: .leftPill)
+    #expect(face.progress == 0.2)
+    #expect(face.tooltip == "Build running · ≈4m left")
+    // The panel row leads with the countdown, then branch · commit.
+    let row = m.detail(for: running).first
+    #expect(row?.subtitle == "≈4m left · main · abc")
+
+    // No history yet → no bar (nil progress), tooltip falls back to elapsed.
+    let noHistory = BuildInfo(state: .running, workflowName: "CI", branch: "main",
+                              shortSHA: "abc", durationText: "1m",
+                              url: "https://github.com/o/r/actions/runs/1",
+                              elapsedSeconds: 90, predictedSeconds: nil)
+    #expect(m.face(for: noHistory, in: .leftPill).progress == nil)
+    #expect(m.face(for: noHistory, in: .leftPill).tooltip == "Build running · running 1m")
+
+    // A finished run carries no live gauge — just its total duration.
+    let done = BuildInfo(state: .passing, workflowName: "CI", branch: "main",
+                         shortSHA: "abc", durationText: "5m",
+                         url: "https://github.com/o/r/actions/runs/1")
+    #expect(m.face(for: done, in: .leftPill).progress == nil)
+    #expect(m.detail(for: done).first?.subtitle == "main · abc · 5m")
+}
+
+@Test func buildActivityRecordsAFinishedRunExactlyOnceAcrossRebuilds() async {
+    // A completed run must be learned ONCE. The app rebuilds the build module on
+    // every settings change, so driving a fresh module against the same store must
+    // NOT re-record the same finished run (else the median silently skews).
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("perch-e2e-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let store = RunHistoryStore(fileURL: url)
+    let client = stubbedClient()   // stub returns a completed 60s run at .../runs/1
+    let key = "o/r@main#CI"
+
+    // First module: sees the completed run, records it once.
+    let first = AnyNotchModule(GitHubBuildsModule(client: client, owner: "o", repo: "r", history: store))
+    _ = await firstRender(first) { $0.pill.face.tint == .good }
+    #expect(await store.durations(forKey: key) == [60])
+
+    // Second module (a rebuild) against the SAME store: same run → not re-counted.
+    let second = AnyNotchModule(GitHubBuildsModule(client: client, owner: "o", repo: "r", history: store))
+    _ = await firstRender(second) { $0.pill.face.tint == .good }
+    #expect(await store.durations(forKey: key) == [60])
+}
+
+@Test func buildActivityToggleOffRestoresPreFeatureText() async {
+    // With "Live progress" off, a RUNNING build must read exactly as it did before
+    // the feature: no progress bar, tooltip "Build running" (not "· running Xm").
+    var http = StubGitHubHTTP()
+    http.runStatus = "in_progress"
+    // Isolated temp-file store so the test never reads the developer's real
+    // ~/.config/perch/run-history.json.
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("perch-e2e-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let running = AnyNotchModule(GitHubBuildsModule(client: stubbedClient(http), owner: "o", repo: "r",
+                                                    history: RunHistoryStore(fileURL: url)))
+
+    let off = await firstRender(running, settings: ["activity": "false"]) { $0.pill.face.tint == .info }
+    #expect(off?.pill.face.progress == nil)
+    #expect(off?.pill.face.tooltip == "Build running")
+    #expect(off?.detail.first?.subtitle == "main · abcdef1 · 1m00s")   // branch · sha · elapsed, no ETA lead
+
+    // On (default), the same running build gains the live tooltip.
+    let on = await firstRender(running, settings: [:]) { $0.pill.face.tint == .info }
+    #expect(on?.pill.face.tooltip?.hasPrefix("Build running · ") == true)
 }
 
 @Test func e2e_githubNotificationsSummarisesABurst() {

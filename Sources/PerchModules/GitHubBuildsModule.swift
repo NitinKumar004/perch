@@ -13,6 +13,25 @@ public struct BuildInfo: Sendable, Equatable {
     public var shortSHA: String
     public var durationText: String
     public var url: String
+    /// Seconds the current run has been going (only meaningful while `.running`),
+    /// used with `predictedSeconds` to drive the live progress bar + ETA.
+    public var elapsedSeconds: Int
+    /// Learned total duration for this workflow (median of past runs), or nil when
+    /// there's no history yet or the ETA is turned off. nil → elapsed-only, no bar.
+    public var predictedSeconds: Int?
+
+    public init(state: BuildState, workflowName: String, branch: String,
+                shortSHA: String, durationText: String, url: String,
+                elapsedSeconds: Int = 0, predictedSeconds: Int? = nil) {
+        self.state = state
+        self.workflowName = workflowName
+        self.branch = branch
+        self.shortSHA = shortSHA
+        self.durationText = durationText
+        self.url = url
+        self.elapsedSeconds = elapsedSeconds
+        self.predictedSeconds = predictedSeconds
+    }
 
     public static let unknown = BuildInfo(
         state: .unknown, workflowName: "", branch: "", shortSHA: "", durationText: "", url: "")
@@ -37,19 +56,29 @@ public struct GitHubBuildsModule: NotchModule {
     private let owner: String
     private let repo: String
     private let branch: String
+    /// Where completed-run durations are learned from, so a running build shows a
+    /// real "≈4m left" instead of a static spinner. Shared across build modules.
+    private let history: RunHistoryStore
 
-    public init(client: GitHubAPIClient, owner: String, repo: String, branch: String = "main") {
+    public init(client: GitHubAPIClient, owner: String, repo: String, branch: String = "main",
+                history: RunHistoryStore = RunHistoryStore()) {
         self.client = client
         self.owner = owner
         self.repo = repo
         self.branch = branch
+        self.history = history
     }
 
     public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<BuildInfo>> {
         let clock = context.clock
         let client = client
         let (owner, repo, branch) = (owner, repo, branch)
+        let history = history
         let idleInterval = context.refreshSeconds(fallback: 60, minimum: 15)
+        // Build-activity controls — every one user-tunable, sensible defaults:
+        let showActivity = context.bool("activity", fallback: true)      // live bar while running
+        let showETA = showActivity && context.setting("eta", fallback: "learned") == "learned"
+        let etaWindow = context.int("etaWindow", fallback: 10, minimum: 2, maximum: 100)
 
         return AsyncStream { continuation in
             let store = VersionedStore<String, BuildInfo>(clock: clock)
@@ -78,13 +107,40 @@ public struct GitHubBuildsModule: NotchModule {
                             nextDelay = (lastState == .running) ? 15 : idleInterval
                         case .ok(let observation?, let newEtag):
                             etag = newEtag
+                            let mapped = Self.map(observation.state)
+                            // History is per workflow (a repo can run several), so a
+                            // slow deploy job's ETA never bleeds into a fast test job.
+                            let historyKey = "\(key)#\(observation.workflowName)"
+                            // Learn: when a run reaches a terminal state, record its
+                            // total duration. The store dedups per run url, so this
+                            // stays correct across polls AND across a module rebuild
+                            // (settings change / restart) where the loop's own memory
+                            // would have re-counted the same finished run.
+                            if showActivity, mapped == .passing || mapped == .failing {
+                                await history.recordIfNewRun(observation.durationSeconds,
+                                                             forKey: historyKey, runURL: observation.url,
+                                                             runUpdatedAt: observation.updatedAt,
+                                                             window: etaWindow)
+                            }
+                            // Predict: while running, offer the learned ETA (median of
+                            // past runs) so the pill shows "≈4m left", not a bare dot.
+                            var predicted: Int?
+                            if showETA, mapped == .running {
+                                predicted = RunHistory.predict(durations: await history.durations(forKey: historyKey))
+                            }
                             let info = BuildInfo(
-                                state: Self.map(observation.state),
+                                state: mapped,
                                 workflowName: observation.workflowName,
                                 branch: observation.branch,
                                 shortSHA: observation.shortSHA,
                                 durationText: Self.formatDuration(observation.durationSeconds),
-                                url: observation.url)
+                                url: observation.url,
+                                // Only carry elapsed when activity is ON — so the
+                                // face/detail special-casing (keyed on elapsed > 0)
+                                // fully reverts to the pre-feature text when the user
+                                // turns the toggle off, not just the number.
+                                elapsedSeconds: (showActivity && mapped == .running) ? observation.durationSeconds : 0,
+                                predictedSeconds: predicted)
                             lastState = info.state
                             let line = "\(info.state)"
                             if lastLog != line { print("[perch] build poll \(key): \(line)"); lastLog = line }
@@ -131,7 +187,18 @@ public struct GitHubBuildsModule: NotchModule {
     }
 
     public func face(for value: BuildInfo, in slot: Slot) -> PillFace {
-        buildFace(for: value.state, in: slot)
+        let base = buildFace(for: value.state, in: slot)
+        // While a build is running, turn the static spinner into a live gauge: a
+        // progress bar filled to elapsed÷learned-ETA, with the countdown in the
+        // tooltip. No history yet → no bar (progress nil), tooltip shows elapsed.
+        guard value.state == .running, value.elapsedSeconds > 0 else { return base }
+        let eta = RunHistory.etaText(elapsedSeconds: value.elapsedSeconds,
+                                     predictedSeconds: value.predictedSeconds)
+        return PillFace(text: base.text, symbolName: base.symbolName, tint: base.tint,
+                        tooltip: "Build running · \(eta)", segments: base.segments,
+                        badge: base.badge,
+                        progress: RunHistory.progress(elapsedSeconds: value.elapsedSeconds,
+                                                      predictedSeconds: value.predictedSeconds))
     }
 
     public func contextLabel(_ context: ModuleContext) -> String? {
@@ -140,9 +207,22 @@ public struct GitHubBuildsModule: NotchModule {
 
     public func detail(for value: BuildInfo) -> [DetailRow] {
         guard value.state != .unknown, !value.url.isEmpty else { return [] }
-        let bits = [value.branch, value.shortSHA, value.durationText].filter { !$0.isEmpty }
+        // While running, lead the subtitle with the live countdown ("≈4m left"),
+        // then the usual branch · commit; a finished run keeps its total duration.
+        var bits = [value.branch, value.shortSHA, value.durationText]
+        if value.state == .running, value.elapsedSeconds > 0 {
+            bits = [RunHistory.etaText(elapsedSeconds: value.elapsedSeconds,
+                                       predictedSeconds: value.predictedSeconds),
+                    value.branch, value.shortSHA]
+        }
+        bits = bits.filter { !$0.isEmpty }
+        // Key the row id off the repo path (the run id in the url changes every
+        // build) so two Builds sections watching different repos don't collide on
+        // a shared "build" id — a bare literal made a per-row action (copy-link)
+        // fire on both. Stable per repo, unique across sections.
+        let repoKey = value.url.components(separatedBy: "/actions").first ?? value.url
         return [DetailRow(
-            id: "build",
+            id: "build-\(repoKey)",
             title: value.workflowName.isEmpty ? "Latest run" : value.workflowName,
             subtitle: bits.joined(separator: " · "),
             tint: buildFace(for: value.state, in: .panel).tint,

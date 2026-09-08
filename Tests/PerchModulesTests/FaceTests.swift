@@ -33,6 +33,62 @@ private func series(_ v: Int) -> VitalSeries { VitalSeries(current: v, history: 
     #expect(noCI.subtitle?.contains("CI") == false)
 }
 
+@Test func prMergeReviewingDedupesAndOrdersNewestFirst() {
+    func pr(_ n: Int, _ repo: String = "o/r") -> PRSummary {
+        PRSummary(number: n, title: "t\(n)", repo: repo, url: "u\(n)")
+    }
+    // #7 appears in BOTH queues (re-requested after review) → must not double up.
+    let requested = [pr(9), pr(7)]
+    let reviewed  = [pr(7), pr(4), pr(2)]
+    let merged = GitHubPRsModule.mergeReviewing(requested, reviewed)
+    #expect(merged.map(\.number) == [9, 7, 4, 2])          // deduped, newest-first
+    // Same number in a DIFFERENT repo is a different PR — kept.
+    let cross = GitHubPRsModule.mergeReviewing([pr(5, "o/a")], [pr(5, "o/b")])
+    #expect(cross.count == 2)
+}
+
+@Test func prReviewingTotalUsesServerCountsNotTruncatedItems() {
+    func pr(_ n: Int, _ repo: String = "o/r") -> PRSummary {
+        PRSummary(number: n, title: "t\(n)", repo: repo, url: "u\(n)")
+    }
+    // 3 awaiting (fully fetched) + 50 reviewed (only 8 fetched due to limit). The
+    // union count MUST reflect the real 53, not the ~11 items we could page in.
+    let awaiting = PRListObservation(total: 3, items: [pr(9), pr(8), pr(7)], observedAt: .init())
+    let reviewed = PRListObservation(total: 50, items: (0..<8).map { pr(100 - $0) }, observedAt: .init())
+    #expect(GitHubPRsModule.reviewingTotal(awaiting, reviewed) == 53)   // no undercount
+
+    // Overlap we can see is subtracted once (a PR re-requested after review).
+    let a = PRListObservation(total: 2, items: [pr(9), pr(7)], observedAt: .init())
+    let b = PRListObservation(total: 2, items: [pr(7), pr(4)], observedAt: .init())
+    #expect(GitHubPRsModule.reviewingTotal(a, b) == 3)                  // 2 + 2 − 1 overlap
+}
+
+@Test func prEmptyStateDistinguishesNoAccessFromCleanEmpty() {
+    let m = GitHubPRsModule(client: .init(auth: .init(
+        flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore())))
+
+    // Real no-access (4xx on a private repo) → the "grant access" nudge.
+    let denied = m.detail(for: PRState(count: 0, items: [], repoScope: "o/r", noAccess: true))[0]
+    #expect(denied.title.contains("No access"))
+    #expect(denied.subtitle?.contains("grant Perch access") == true)
+
+    // A query that SUCCEEDED and found nothing must NOT cry "grant access", and
+    // must name the reason for THIS queue.
+    let awaiting = m.detail(for: PRState(count: 0, items: [], repoScope: "o/r", queue: .reviewRequested))[0]
+    #expect(awaiting.title.contains("awaiting your review"))
+    #expect(awaiting.subtitle?.contains("grant Perch access") != true)
+    #expect(awaiting.subtitle?.contains("PRs I") == true)   // points to the reviewed queue
+
+    let reviewed = m.detail(for: PRState(count: 0, items: [], repoScope: "o/r", queue: .reviewedBy))[0]
+    #expect(reviewed.title.contains("haven't reviewed"))
+    #expect(reviewed.subtitle?.contains("grant Perch access") != true)
+
+    // The default union queue names itself too — no alarm, no misleading text.
+    let reviewing = m.detail(for: PRState(count: 0, items: [], repoScope: "o/r", queue: .reviewing))[0]
+    #expect(reviewing.title.contains("No PRs to review"))
+    #expect(reviewing.subtitle?.contains("grant Perch access") != true)
+}
+
 @Test func refreshSecondsHelperParsesAndClamps() {
     #expect(ModuleContext(settings: [:]).refreshSeconds(fallback: 60) == 60)      // unset → fallback
     #expect(ModuleContext(settings: ["refreshSeconds": "30"]).refreshSeconds(fallback: 60) == 30)

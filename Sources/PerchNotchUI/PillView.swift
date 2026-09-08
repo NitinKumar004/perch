@@ -12,6 +12,7 @@ public struct PillView: View {
     private let content: PillContent
     @State private var isHovering = false
     @Environment(\.palette) private var palette
+    @Environment(\.theme) private var theme
 
     public init(_ content: PillContent) {
         self.content = content
@@ -50,7 +51,7 @@ public struct PillView: View {
             }
             if let staleLabel {
                 Text(staleLabel)
-                    .font(.system(size: 9, weight: .regular, design: .monospaced))
+                    .font(theme.font(9))
                     .foregroundStyle(palette.ink(0.4))   // follows the theme, like the rest
             }
             if errorMessage != nil {
@@ -72,10 +73,10 @@ public struct PillView: View {
         // matches whatever tint macOS gives the menu bar — never a clashing panel.
         // A whisper-faint fill only appears on hover, the way native items do.
         .background(
-            RoundedRectangle(cornerRadius: Self.pillRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: pillRadius, style: .continuous)
                 .fill(palette.onSurface.opacity(isHovering ? 0.14 : 0))
         )
-        .contentShape(RoundedRectangle(cornerRadius: Self.pillRadius, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: pillRadius, style: .continuous))
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.15)) { isHovering = hovering }
         }
@@ -93,7 +94,9 @@ public struct PillView: View {
 
     /// Sizing tuned to sit flush in the menu bar like a native item.
     static let pillHeight: CGFloat = 22
-    static var pillRadius: CGFloat { 6 }
+    /// Corner radius scaled to the active theme's shape (sharp for Terminal, soft
+    /// for Midnight) — one base value, themed in one place.
+    private var pillRadius: CGFloat { theme.radius(6) }
 
     private var tintColor: Color { palette.color(for: content.face.tint) }
 
@@ -113,11 +116,11 @@ public struct PillView: View {
                     }
                 }
             }
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .font(theme.font(11, .medium))
             .lineLimit(1)
         } else {
             Text(content.face.text)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .font(theme.font(11, .medium))
                 .lineLimit(1)
         }
     }

@@ -26,9 +26,15 @@ public final class NotchViewModel {
     /// tappability, emphasis), so the whole check → download → install flow is
     /// reachable from there without hunting for the menu-bar bird.
     public var updateStatus: UpdateAvailability = .idle
-    /// The active colour palette (from the user's chosen theme). Injected into
-    /// the view tree so every pill and the panel re-skin when it changes.
-    public var palette: Palette = .system
+    /// The active theme identity (colour + typeface + shape + material) from the
+    /// user's chosen theme and their accent/material overrides. Injected into the
+    /// view tree so every pill and the panel re-skin — and re-shape, re-font,
+    /// re-material — when it changes.
+    public var themeStyle: ThemeStyle = .system
+    /// The active palette — derived from `themeStyle` so colour has ONE source of
+    /// truth. Colour-only views keep reading `\.palette`; richer views read the
+    /// full `\.theme`.
+    public var palette: Palette { themeStyle.palette }
     /// Width of the physical notch gap, updated when displays change so the pills
     /// stay flush on either side (0 on non-notch Macs → pills sit together).
     public var notchWidth: CGFloat = 0

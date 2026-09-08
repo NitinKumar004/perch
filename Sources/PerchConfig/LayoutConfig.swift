@@ -63,10 +63,24 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
     /// A "HH:MM-HH:MM" window during which notifications are suppressed, or nil
     /// for none. May wrap past midnight (e.g. "22:00-08:00").
     public var quietHours: String?
+    /// The default base theme id — the original look. One constant so the init
+    /// default, the lenient decode fallback, and the UI's "Reset to defaults" all
+    /// agree on what "stock" means.
+    public static let defaultThemeID = "system"
     /// The selected colour theme, stored as an opaque id (e.g. "midnight"). The
     /// UI layer maps it to a palette; config stays a lower layer and never knows
     /// the concrete colours. Defaults to "system" (the original look).
     public var theme: String
+    /// The user's personal accent colour as `#RRGGBB`, layered over ANY theme, or
+    /// nil to use the theme's own accent. Lets two people on the same base theme
+    /// still make it theirs.
+    public var themeAccent: String?
+    /// The user's material override ("solid" / "frosted" / "glow"), or nil to use
+    /// the theme's own material. The UI maps the id; config stays colour-blind.
+    public var themeMaterial: String?
+    /// Dynamic-theme mode: nil = the fixed chosen theme; "wallpaper" tints the HUD
+    /// from the desktop picture; "daynight" swaps a light/dark pair by the clock.
+    public var themeMode: String?
     /// Whether alerts also show as a transient banner in the notch (in addition
     /// to the macOS notification). Defaults on.
     public var notchBanner: Bool
@@ -78,12 +92,17 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
     public var pacing: AlertPacing
 
     public init(autoOpenOnRed: Bool = false, quietHours: String? = nil,
-                theme: String = "system", notchBanner: Bool = true,
+                theme: String = GlobalSettings.defaultThemeID, themeAccent: String? = nil,
+                themeMaterial: String? = nil, themeMode: String? = nil,
+                notchBanner: Bool = true,
                 thresholds: MetricThresholds = .standard,
                 pacing: AlertPacing = .standard) {
         self.autoOpenOnRed = autoOpenOnRed
         self.quietHours = quietHours
         self.theme = theme
+        self.themeAccent = themeAccent
+        self.themeMaterial = themeMaterial
+        self.themeMode = themeMode
         self.notchBanner = notchBanner
         self.thresholds = thresholds
         self.pacing = pacing
@@ -93,7 +112,10 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         autoOpenOnRed = try c.decodeIfPresent(Bool.self, forKey: .autoOpenOnRed) ?? false
         quietHours = try c.decodeIfPresent(String.self, forKey: .quietHours)
-        theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? "system"
+        theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? GlobalSettings.defaultThemeID
+        themeAccent = try c.decodeIfPresent(String.self, forKey: .themeAccent)
+        themeMaterial = try c.decodeIfPresent(String.self, forKey: .themeMaterial)
+        themeMode = try c.decodeIfPresent(String.self, forKey: .themeMode)
         notchBanner = try c.decodeIfPresent(Bool.self, forKey: .notchBanner) ?? true
         thresholds = try c.decodeIfPresent(MetricThresholds.self, forKey: .thresholds) ?? .standard
         pacing = try c.decodeIfPresent(AlertPacing.self, forKey: .pacing) ?? .standard

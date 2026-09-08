@@ -407,18 +407,18 @@ private func firstRender(_ module: AnyNotchModule,
     // showChecks/limit are read from ModuleContext at stream time, so they flow
     // in via firstRender(settings:) — exactly as the shell hands them to a stream.
     let on = githubFactory().makeModule(for: SlotBinding(module: "github.prs"))!
-    let onRender = await firstRender(on, settings: ["showChecks": "true"]) { r in !r.detail.isEmpty && r.pill.freshness == .live }
+    let onRender = await firstRender(on, settings: ["queue": "review-requested", "showChecks": "true"]) { r in !r.detail.isEmpty && r.pill.freshness == .live }
     #expect(onRender?.detail.first?.subtitle?.contains("CI") == true)
 
     // showChecks OFF → same data, no CI text.
     let off = githubFactory().makeModule(for: SlotBinding(module: "github.prs"))!
-    let offRender = await firstRender(off, settings: ["showChecks": "false"]) { r in !r.detail.isEmpty && r.pill.freshness == .live }
+    let offRender = await firstRender(off, settings: ["queue": "review-requested", "showChecks": "false"]) { r in !r.detail.isEmpty && r.pill.freshness == .live }
     #expect(offRender?.detail.first?.subtitle?.contains("CI") == false)
 }
 
 @Test func e2e_prModuleHonorsLimitConfig() async {
     let m = githubFactory().makeModule(for: SlotBinding(module: "github.prs"))!
-    let render = await firstRender(m, settings: ["limit": "1"]) { r in !r.detail.isEmpty && r.pill.freshness == .live }
+    let render = await firstRender(m, settings: ["queue": "review-requested", "limit": "1"]) { r in !r.detail.isEmpty && r.pill.freshness == .live }
     #expect(render?.detail.first?.title.hasPrefix("#10") == true)
 }
 

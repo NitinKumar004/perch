@@ -58,6 +58,7 @@ struct PanelView: View {
     @State private var expanded: Set<String> = []  // sections showing their full list
     @State private var copiedRowID: String?        // row whose link was just copied (brief ✓)
     @Environment(\.palette) private var palette
+    @Environment(\.theme) private var theme
 
     var body: some View {
         VStack(spacing: 0) {
@@ -74,14 +75,12 @@ struct PanelView: View {
         }
         .padding(.vertical, 4)
         .frame(width: 380)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(palette.surface.opacity(0.92))
-                .overlay(RoundedRectangle(cornerRadius: 18)
-                    .strokeBorder(isDropTargeted ? palette.accent : palette.ink(0.08),
-                                  lineWidth: isDropTargeted ? 2 : 1))
-        )
+        .background(cardSurface)
         .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
+        // A soft accent halo only for the "glow" material — the theme's premium
+        // signature; zero-radius (invisible) otherwise, so it costs nothing.
+        .shadow(color: theme.material == .glow ? palette.accent.opacity(0.45) : .clear,
+                radius: theme.material == .glow ? 26 : 0, y: 6)
         // Pause an auto-open's auto-close countdown while the pointer is over the
         // panel (you're reading it), resume it when the pointer leaves.
         .onHover { actions.onHover($0) }
@@ -98,6 +97,17 @@ struct PanelView: View {
             // Adopt an external order change (config reload) when not mid-drag.
             if draggingID == nil { order = ids }
         }
+    }
+
+    /// The panel's card surface, themed. "Frosted" blurs what's behind (macOS
+    /// vibrancy) under a translucent tint; otherwise a flat fill. The corner shape
+    /// follows the theme's `radius`, in one place.
+    private var cardSurface: some View {
+        let r = theme.radius(18)
+        return theme.materialFill(radius: r)
+            .overlay(RoundedRectangle(cornerRadius: r, style: .continuous)
+                .strokeBorder(isDropTargeted ? palette.accent : palette.ink(0.08),
+                              lineWidth: isDropTargeted ? 2 : 1))
     }
 
     /// Items in the current working order, with any not-yet-tracked rows appended.
@@ -147,7 +157,7 @@ struct PanelView: View {
             }
             if items.isEmpty {
                 Text("No panel modules configured")
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(theme.font(11))
                     .foregroundStyle(palette.ink(0.4))
                     .padding(.vertical, 14)
             }
@@ -166,11 +176,11 @@ struct PanelView: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(item.title)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(theme.font(12, .semibold))
                         .foregroundStyle(palette.ink(0.85))
                     if let subtitle = item.subtitle {
                         Text(subtitle)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(theme.font(10))
                             .foregroundStyle(palette.ink(0.45))
                             .lineLimit(1)
                     }
@@ -254,11 +264,11 @@ struct PanelView: View {
             HStack(spacing: 6) {
                 if let symbol = row.symbolName {
                     Image(systemName: symbol)
-                        .font(.system(size: 11))
+                        .font(theme.font(11))
                         .foregroundStyle(tintColor(row.tint))
                 }
                 Text(row.title)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(theme.font(11, .semibold))
                     .foregroundStyle(palette.ink(0.9))
                     .lineLimit(1)
                 Spacer(minLength: 0)
@@ -266,7 +276,7 @@ struct PanelView: View {
             HStack(alignment: .bottom, spacing: 6) {
                 if let subtitle = row.subtitle {
                     Text(subtitle)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(theme.font(11))
                         .foregroundStyle(palette.ink(0.6))
                         .lineLimit(2)                       // wraps, never cut off
                         .fixedSize(horizontal: false, vertical: true)
@@ -299,9 +309,9 @@ struct PanelView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(theme.font(9, .bold))
                 Text(expanded ? "Show less" : "Show all \(total)")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(theme.font(11, .medium))
                 Spacer(minLength: 0)
             }
             .foregroundStyle(palette.ink(0.5))
@@ -369,7 +379,7 @@ struct PanelView: View {
             HStack(spacing: 9) {
                 if let subtitle {
                     Text(subtitle)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(theme.font(10))
                         .foregroundStyle(palette.ink(0.5))
                         .lineLimit(1)
                 }
@@ -393,28 +403,15 @@ struct PanelView: View {
         let content = HStack(spacing: 9) {
             if let symbol = row.symbolName {
                 Image(systemName: symbol)
-                    .font(.system(size: 11))
+                    .font(theme.font(11))
                     .foregroundStyle(tintColor(row.tint))
                     .frame(width: 16)
             }
-            VStack(alignment: .leading, spacing: 1) {
-                Text(row.title)
-                    .font(.system(size: 12))
-                    .foregroundStyle(palette.ink(0.9))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if let subtitle = row.subtitle {
-                    Text(subtitle)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(palette.ink(0.5))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-            }
-            // Take the offered width and truncate at its edge. Plain Text reports a
-            // small minimum width (it can shrink and ellipsize), unlike the old
-            // .fixedSize scroll wrapper which reported each row's FULL width as an
-            // unshrinkable minimum and blew the panel past 380pt. Full text on hover.
+            // Title + subtitle you can SLIDE by hand to read anything cut off at the
+            // edge — both lines share one offset so they move together. Width-safe:
+            // a long title can't widen the panel. Click still opens the row.
+            ManualSlide(title: row.title, titleFont: theme.font(12), titleColor: palette.ink(0.9),
+                        subtitle: row.subtitle, subFont: theme.font(10), subColor: palette.ink(0.5))
             .frame(maxWidth: .infinity, alignment: .leading)
             .help(row.subtitle.map { "\(row.title) · \($0)" } ?? row.title)
             Spacer(minLength: 8)
@@ -428,7 +425,7 @@ struct PanelView: View {
             }
             if row.url != nil {
                 Image(systemName: "arrow.up.right.square")
-                    .font(.system(size: 11))
+                    .font(theme.font(11))
                     .foregroundStyle(palette.ink(0.4))
             }
         }
@@ -452,7 +449,7 @@ struct PanelView: View {
                 let copied = copiedRowID == row.id
                 Button { copyLink(urlString, rowID: row.id) } label: {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 11))
+                        .font(theme.font(11))
                         .foregroundStyle(copied ? palette.good : palette.ink(0.4))
                 }
                 .buttonStyle(.plain)
@@ -462,7 +459,7 @@ struct PanelView: View {
             if let secondary = row.secondaryAction {
                 Button { actions.onAction(secondary) } label: {
                     Image(systemName: row.secondaryIcon ?? "xmark.circle.fill")
-                        .font(.system(size: 12))
+                        .font(theme.font(12))
                         .foregroundStyle(palette.ink(0.35))
                 }
                 .buttonStyle(.plain)
@@ -506,7 +503,7 @@ struct PanelView: View {
                                action: @escaping @MainActor () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: system)
-                .font(.system(size: 11, weight: .medium))
+                .font(theme.font(11, .medium))
                 .foregroundStyle((tint ?? palette.onSurface).opacity(0.9))
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)

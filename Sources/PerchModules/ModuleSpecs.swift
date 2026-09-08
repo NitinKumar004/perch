@@ -101,9 +101,11 @@ public enum ModuleSpecs {
         spec(GitHubPRsModule.self, category: .github, tag: "review queue",
              settings: [
                 ModuleSetting(key: "queue", label: "Show", placeholder: "",
-                              defaultValue: "review-requested",
+                              defaultValue: "reviewing",
                               options: [
-                                SettingOption(value: "review-requested", label: "PRs waiting on my review"),
+                                SettingOption(value: "reviewing", label: "PRs I'm reviewing (waiting + reviewed)"),
+                                SettingOption(value: "review-requested", label: "Only waiting on my review"),
+                                SettingOption(value: "reviewed-by", label: "Only PRs I've reviewed (not my own)"),
                                 SettingOption(value: "author", label: "PRs I opened"),
                               ]),
                 ModuleSetting(key: "repo", label: "Repositories (optional)", placeholder: "owner/a, owner/b — blank = all repos"),

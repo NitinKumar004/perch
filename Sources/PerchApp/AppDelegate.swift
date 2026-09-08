@@ -69,6 +69,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// can't start two concurrent downloads/installs racing on the same bundle.
     private var isCheckingForUpdate = false
     private var isInstallingUpdate = false
+    /// The theme-relevant settings from the last applied config, so a wallpaper
+    /// change or the day/night tick can re-resolve the dynamic theme without a
+    /// full reload. A fixed (non-dynamic) theme just ignores those events.
+    private var themeGlobal = GlobalSettings()
+    /// Ticks the day/night theme across the 06:00/18:00 boundary while a dynamic
+    /// theme is active. Stored so it's invalidated on teardown.
+    private var themeTick: Timer?
+    /// The in-flight wallpaper sample, cancelled when a newer event supersedes it
+    /// so rapid Space switches don't pile up decodes.
+    private var wallpaperSampleTask: Task<Void, Never>?
+
+    /// Resolve the live theme from the stored choices + the dynamic mode, and push
+    /// it to the model. One place, called on config apply and on wallpaper/time
+    /// changes — so what's on screen is always the correctly-resolved theme.
+    private func applyTheme() {
+        let base = ThemeResolver.resolve(themeID: themeGlobal.theme,
+                                         accentHex: themeGlobal.themeAccent,
+                                         material: themeGlobal.themeMaterial)
+        wallpaperSampleTask?.cancel()
+        guard themeGlobal.themeMode == "wallpaper" else {
+            // "daynight" / fixed are cheap and pure — resolve synchronously.
+            model.themeStyle = DynamicTheme.apply(base, mode: themeGlobal.themeMode)
+            return
+        }
+        // Wallpaper mode: show the base look immediately, then decode the desktop
+        // picture OFF the main actor (a full-res image decode would otherwise hitch
+        // the UI on every Space switch) and apply the tint when it's ready. The
+        // sample runs as the STORED detached task, so `cancel()` on the next call
+        // reaches WallpaperTint's own `Task.isCancelled` checks and stops a
+        // superseded decode mid-scan instead of letting it finish wastefully.
+        model.themeStyle = base
+        wallpaperSampleTask = Task.detached {
+            let hex = WallpaperTint.sample()
+            if Task.isCancelled { return }
+            await MainActor.run { [weak self] in
+                guard let self, self.themeGlobal.themeMode == "wallpaper" else { return }
+                // Re-resolve from the CURRENT settings — the theme may have changed
+                // while we were decoding.
+                let fresh = ThemeResolver.resolve(themeID: self.themeGlobal.theme,
+                                                  accentHex: self.themeGlobal.themeAccent,
+                                                  material: self.themeGlobal.themeMaterial)
+                self.model.themeStyle = hex.flatMap(Color.init(hex:)).map(fresh.withAccent) ?? fresh
+            }
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let isFirstRun = !FileManager.default.fileExists(atPath: ConfigStore.defaultFileURL.path)
@@ -120,7 +165,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         RunLoop.main.add(timer, forMode: .common)
         updateTimer = timer
+
+        // Dynamic themes: re-resolve when the wallpaper/Space changes (wallpaper
+        // mode) and every 15 min (day/night boundary). No-ops for a fixed theme,
+        // which resolves to the same style.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(reapplyTheme),
+            name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+        let tick = Timer(timeInterval: 15 * 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyTheme() }
+        }
+        RunLoop.main.add(tick, forMode: .common)
+        themeTick = tick
     }
+
+    @objc private func reapplyTheme() { applyTheme() }
 
     /// Ask GitHub Releases whether a newer Perch exists. On success it updates
     /// the menu item and (once) notifies; `userInitiated` also opens the page.
@@ -212,7 +271,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let config = configStore.load()
         notifier.configure(config.global)
         configWatcher?.markApplied()   // our own read isn't an "external" change
-        model.palette = (Theme(rawValue: config.global.theme) ?? .system).palette
+        themeGlobal = config.global
+        applyTheme()
         windowController?.setPosition(HUDPosition(rawValue: config.hudPosition) ?? .flank)
         guard let preset = config.current else { return }
 
@@ -447,6 +507,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         configWatcher?.stop()
         updateTimer?.invalidate()
+        themeTick?.invalidate()
+        wallpaperSampleTask?.cancel()
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
         binder?.cancelAll()
     }
 

@@ -91,12 +91,29 @@ public struct PRListObservation: Sendable, Equatable {
     public let total: Int
     public let items: [PRSummary]
     public let observedAt: Date
+
+    public init(total: Int, items: [PRSummary], observedAt: Date) {
+        self.total = total
+        self.items = items
+        self.observedAt = observedAt
+    }
 }
 
 /// Which pull-request queue to count.
 public enum PRQueue: String, Sendable {
-    /// PRs where your review has been requested (waiting on you).
+    /// Everything you're a reviewer on — the union of `reviewRequested` and
+    /// `reviewedBy`. GitHub has no single qualifier for this, so it's fetched as
+    /// two queries and merged client-side; it's never sent as one `x:@me` term.
+    /// This is the intuitive "my reviews" list: PRs waiting on you AND ones you've
+    /// already reviewed, together.
+    case reviewing = "reviewing"
+    /// PRs where your review has been requested but you HAVEN'T reviewed yet
+    /// (the ball is in your court). A PR leaves this queue the moment you submit
+    /// a review — that's `reviewedBy`, not this.
     case reviewRequested = "review-requested"
+    /// PRs you have already reviewed (still open). What you'd expect "my reviews"
+    /// to show after you've actually reviewed them.
+    case reviewedBy = "reviewed-by"
     /// PRs you opened.
     case authored = "author"
 }
@@ -107,7 +124,17 @@ extension GitHubAPIClient {
     /// single count + a single merged list — no double-counting, one request.
     /// An empty `repos` searches every repo the user can access.
     static func prQuery(queue: PRQueue, repos: [String]) -> String {
-        var q = "is:pr is:open \(queue.rawValue):@me"
+        // `.reviewing` is a client-side UNION of two queries — it's never a single
+        // GitHub qualifier. It must be intercepted before it reaches here (see
+        // GitHubPRsModule.observe); if a future caller forgets, fail loudly in debug
+        // and fall back to a VALID term in release so we never emit `reviewing:@me`.
+        assert(queue != .reviewing, "prQuery called with .reviewing — resolve the union upstream, don't build a single query for it")
+        let qualifier = (queue == .reviewing ? PRQueue.reviewRequested : queue).rawValue
+        var q = "is:pr is:open \(qualifier):@me"
+        // "Reviewed by me" is a REVIEWER queue: other people's PRs I reviewed, not
+        // my own. GitHub's `reviewed-by` counts commenting on your own PR as a
+        // review, so exclude PRs I authored — otherwise my own PRs leak in.
+        if queue == .reviewedBy { q += " -author:@me" }
         for repo in repos where !repo.isEmpty { q += " repo:\(repo)" }
         return q
     }

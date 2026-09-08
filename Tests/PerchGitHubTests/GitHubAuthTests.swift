@@ -281,6 +281,21 @@ private func observation(_ fetch: GitHubAPIClient.BuildFetch) -> BuildObservatio
     #expect(all == "is:pr is:open review-requested:@me")
 }
 
+// Note: prQuery(.reviewing) is intentionally a debug assertion failure (the union
+// must be resolved upstream in GitHubPRsModule.observe, never built as one query),
+// so it isn't unit-tested directly — the release fallback to a valid term exists
+// only as a safety net.
+
+@Test func prQueryUsesReviewedByForReviewedQueue() {
+    // "PRs I've reviewed" must query reviewed-by:@me, NOT review-requested:@me —
+    // a PR leaves review-requested the moment you submit a review, so the reviewed
+    // queue would otherwise always read empty right after you review.
+    let q = GitHubAPIClient.prQuery(queue: .reviewedBy, repos: ["zopdev/zopnight"])
+    // Excludes my own PRs — "reviewed by me" means someone ELSE's PR I reviewed,
+    // not my own PR I commented on (which GitHub counts as reviewed-by).
+    #expect(q == "is:pr is:open reviewed-by:@me -author:@me repo:zopdev/zopnight")
+}
+
 // MARK: - Notifications endpoint
 
 private func notifsJSON() -> String {

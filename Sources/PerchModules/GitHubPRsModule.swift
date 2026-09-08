@@ -17,15 +17,21 @@ public struct PRState: Sendable, Equatable {
     /// The scoped repo couldn't be read (private repo Perch isn't installed on).
     /// Distinct from a genuine zero, so the pill can say so honestly.
     public var noAccess: Bool
+    /// Which queue this state is for — so an empty result names the RIGHT reason
+    /// ("none awaiting your review" vs "you haven't reviewed any"), instead of
+    /// crying "grant access" on a query that actually succeeded.
+    public var queue: PRQueue
 
     public init(count: Int, items: [PRSummary], repoScope: String? = nil,
-                showChecks: Bool = true, showReview: Bool = true, noAccess: Bool = false) {
+                showChecks: Bool = true, showReview: Bool = true, noAccess: Bool = false,
+                queue: PRQueue = .reviewRequested) {
         self.count = count
         self.items = items
         self.repoScope = repoScope
         self.showChecks = showChecks
         self.showReview = showReview
         self.noAccess = noAccess
+        self.queue = queue
     }
 
     public static let empty = PRState(count: 0, items: [], repoScope: nil)
@@ -58,7 +64,7 @@ public struct GitHubPRsModule: NotchModule {
     public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<PRState>> {
         let clock = context.clock
         let client = client
-        let queue = PRQueue(rawValue: context.settings["queue"] ?? "") ?? .reviewRequested
+        let queue = PRQueue(rawValue: context.settings["queue"] ?? "") ?? .reviewing
         // One repo, several (comma/space-separated), or blank = all accessible.
         let repos = Self.parseRepos(context.settings["repo"] ?? "")
         let scopeLabel = repos.isEmpty ? nil : repos.joined(separator: ", ")
@@ -84,11 +90,12 @@ public struct GitHubPRsModule: NotchModule {
                     let throttle = await client.rateLimit.throttleDelay()
                     if throttle > 0 { try? await Task.sleep(for: .seconds(min(throttle, 60))) }
                     do {
-                        let observation = try await client.pullRequestList(queue: queue, repos: repos, limit: limit, now: clock.now())
+                        let observation = try await Self.observe(queue, client: client, repos: repos, limit: limit, now: clock.now())
                         if lastError != nil { print("[perch] pr poll \(key): recovered"); lastError = nil }
                         failures = 0
                         let state = PRState(count: observation.total, items: observation.items,
-                                            repoScope: scopeLabel, showChecks: showChecks, showReview: showReview)
+                                            repoScope: scopeLabel, showChecks: showChecks, showReview: showReview,
+                                            queue: queue)
                         let accepted = await store.apply(state, forKey: key, version: observation.observedAt)
                         if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
                             continuation.yield(snapshot)
@@ -109,7 +116,7 @@ public struct GitHubPRsModule: NotchModule {
                         // hammering it (it won't change until the user acts).
                         if case GitHubAuthError.http(let status) = error,
                            (400..<500).contains(status), let scope = scopeLabel {
-                            let noAccess = PRState(count: 0, items: [], repoScope: scope, noAccess: true)
+                            let noAccess = PRState(count: 0, items: [], repoScope: scope, noAccess: true, queue: queue)
                             continuation.yield(Snapshot(value: noAccess, freshness: .unknown, asOf: clock.now()))
                             nextDelay = backoff.cap
                         } else if let stale = await store.snapshot(forKey: key, ttl: 0) {
@@ -189,8 +196,62 @@ public struct GitHubPRsModule: NotchModule {
         case 1:  scope = repos[0]
         default: scope = "\(repos.count) repos"
         }
-        let which = (context.settings["queue"] == "author") ? "opened by me" : "my review"
+        // Switch on the ENUM (not the raw string) so a new queue can't silently
+        // fall through to the wrong label — the compiler makes this exhaustive.
+        let queue = PRQueue(rawValue: context.settings["queue"] ?? "") ?? .reviewing
+        let which: String
+        switch queue {
+        case .reviewing:       which = "my reviews"
+        case .reviewRequested: which = "awaiting my review"
+        case .reviewedBy:      which = "reviewed by me"
+        case .authored:        which = "opened by me"
+        }
         return "\(scope) · \(which)"
+    }
+
+    /// Fetch one poll's observation for `queue`. For `.reviewing` this is the UNION
+    /// of review-requested + reviewed-by (GitHub has no single qualifier for "I'm a
+    /// reviewer"), fetched as two concurrent queries and merged; every other queue
+    /// is a single query.
+    static func observe(_ queue: PRQueue, client: GitHubAPIClient,
+                        repos: [String], limit: Int, now: Date) async throws -> PRListObservation {
+        guard queue == .reviewing else {
+            return try await client.pullRequestList(queue: queue, repos: repos, limit: limit, now: now)
+        }
+        async let requested = client.pullRequestList(queue: .reviewRequested, repos: repos, limit: limit, now: now)
+        async let reviewed  = client.pullRequestList(queue: .reviewedBy, repos: repos, limit: limit, now: now)
+        // All-or-nothing on purpose: if either side fails we throw, and the caller's
+        // stale-snapshot fallback keeps the last good list on screen rather than
+        // showing half a union that looks like PRs vanished. A transient blip just
+        // delays freshness, it doesn't blank or truncate the panel.
+        let (a, b) = try await (requested, reviewed)
+        let merged = mergeReviewing(a.items, b.items)
+        // Count from the servers' REAL totals (each `total` is GitHub's issueCount,
+        // not the page cap), so the pill can't silently undercount a prolific
+        // reviewer — the exact case this queue exists for. Show at most `limit`.
+        return PRListObservation(total: reviewingTotal(a, b),
+                                 items: Array(merged.prefix(limit)), observedAt: now)
+    }
+
+    /// The honest union count: both sides' true totals minus the overlap we can see
+    /// (a PR re-requested after review is in both). Uses server `total`s so it never
+    /// undercounts when either side has more PRs than one page holds; the only
+    /// imprecision is a rare re-request duplicate sitting beyond the fetched page,
+    /// which would nudge the count UP by one — never hide a PR.
+    static func reviewingTotal(_ a: PRListObservation, _ b: PRListObservation) -> Int {
+        func keys(_ prs: [PRSummary]) -> Set<String> { Set(prs.map { "\($0.repo)#\($0.number)" }) }
+        let overlap = keys(a.items).intersection(keys(b.items)).count
+        return max(a.total + b.total - overlap, 0)
+    }
+
+    /// Merge the two reviewer queues into one list: de-duplicate by repo#number (a
+    /// PR can be in BOTH after a re-request) and order newest-first so the list is
+    /// stable across polls.
+    static func mergeReviewing(_ requested: [PRSummary], _ reviewed: [PRSummary]) -> [PRSummary] {
+        var seen = Set<String>()
+        var merged: [PRSummary] = []
+        for pr in requested + reviewed where seen.insert("\(pr.repo)#\(pr.number)").inserted { merged.append(pr) }
+        return merged.sorted { $0.number > $1.number }
     }
 
     /// Parse the `repo` setting into a list: one repo, a comma/space-separated
@@ -204,17 +265,35 @@ public struct GitHubPRsModule: NotchModule {
 
     public func detail(for value: PRState) -> [DetailRow] {
         if value.items.isEmpty {
-            // Nothing to list. If scoped to a repo and empty, explain the most
-            // common cause honestly — a private repo Perch can't see yet.
-            if value.count == 0, let scope = value.repoScope {
+            // Only the genuine can't-read-this-repo case (a 4xx on a private repo
+            // Perch isn't installed on) gets the "grant access" nudge — NOT a query
+            // that succeeded and simply found nothing.
+            if value.noAccess, let scope = value.repoScope {
                 return [DetailRow(
                     id: "pr-none",
-                    title: "No matching PRs in \(scope)",
-                    subtitle: "Private repo? Tap to grant Perch access on GitHub — or sign in with a token in Settings.",
-                    tint: .neutral, symbolName: "lock.circle",
+                    title: "No access to \(scope)",
+                    subtitle: "Tap to grant Perch access on GitHub — or sign in with a token in Settings.",
+                    tint: .warning, symbolName: "lock.circle",
                     url: "https://github.com/settings/installations")]
             }
-            return value.count == 0 ? [] : [DetailRow(id: "pr-empty", title: "\(value.count) waiting", tint: .warning)]
+            if value.count == 0 {
+                // A clean empty: name the actual reason for THIS queue, so the user
+                // knows it worked and can pick a different queue if they meant one.
+                let whereIn = value.repoScope.map { " in \($0)" } ?? ""
+                let msg: String
+                switch value.queue {
+                case .reviewing:       msg = "No PRs to review\(whereIn)"
+                case .reviewRequested: msg = "No PRs awaiting your review\(whereIn)"
+                case .reviewedBy:      msg = "You haven't reviewed any open PRs\(whereIn)"
+                case .authored:        msg = "No open PRs you've opened\(whereIn)"
+                }
+                let hint = value.queue == .reviewRequested
+                    ? "Looking for PRs you already reviewed? Switch \u{201C}Show\u{201D} to \u{201C}PRs I\u{2019}m reviewing\u{201D} in Settings."
+                    : ""
+                return [DetailRow(id: "pr-none", title: msg, subtitle: hint,
+                                  tint: .neutral, symbolName: "checkmark.seal")]
+            }
+            return [DetailRow(id: "pr-empty", title: "\(value.count) waiting", tint: .warning)]
         }
         return value.items.map { pr in
             let review = Self.status(for: pr)

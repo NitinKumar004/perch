@@ -24,6 +24,10 @@ struct SettingsView: View {
     @State private var autoOpenOnRed: Bool
     @State private var quietHours: String
     @State private var theme: String
+    @State private var themeAccent: String?     // personal accent (hex), nil = theme's own
+    @State private var themeMaterial: String?   // material override id, nil = theme's own
+    @State private var themeMode: String?        // dynamic mode ("wallpaper"/"daynight"), nil = fixed
+    @State private var themeCode: String = ""    // paste-a-theme-code field
     @State private var notchBanner: Bool
     @State private var thresholds: MetricThresholds
     @State private var pacing: AlertPacing
@@ -79,6 +83,9 @@ struct SettingsView: View {
         _autoOpenOnRed = State(initialValue: config.global.autoOpenOnRed)
         _quietHours = State(initialValue: config.global.quietHours ?? "")
         _theme = State(initialValue: config.global.theme)
+        _themeAccent = State(initialValue: config.global.themeAccent)
+        _themeMaterial = State(initialValue: config.global.themeMaterial)
+        _themeMode = State(initialValue: config.global.themeMode)
         _notchBanner = State(initialValue: config.global.notchBanner)
         _thresholds = State(initialValue: config.global.thresholds)
         _pacing = State(initialValue: config.global.pacing)
@@ -350,54 +357,165 @@ struct SettingsView: View {
 
     // MARK: - Theme
 
+    /// The final resolved style — base theme + the user's accent/material — so the
+    /// live preview and every tile show exactly what the HUD will look like (same
+    /// resolver the app uses; no second code path that could drift).
+    private var resolvedStyle: ThemeStyle {
+        ThemeResolver.resolve(themeID: theme, accentHex: themeAccent, material: themeMaterial)
+    }
+
+    /// Accent options offered on top of any theme. `nil` = the theme's own accent.
+    private static let accentOptions: [(hex: String?, label: String)] = [
+        (nil, "Auto"), ("#A78BFA", "Violet"), ("#6EA8FE", "Blue"), ("#2DD4BF", "Teal"),
+        ("#34D399", "Green"), ("#FBBF24", "Amber"), ("#FB7185", "Rose"), ("#F472B6", "Pink"),
+    ]
+
     private var themeSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // A compact grid of preview tiles — each theme shown on its own
-            // surface, the selected one ringed. Far tighter than a full-width row
-            // per theme, and the swatch IS the choice. Applies on Save.
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)],
+        VStack(alignment: .leading, spacing: 14) {
+            // Live preview of the FINAL look (theme + your accent + material).
+            ThemePreview(style: resolvedStyle,
+                         name: (Theme(rawValue: theme) ?? .system).label,
+                         tagline: (Theme(rawValue: theme) ?? .system).tagline)
+
+            // Pick the base identity — each tile rendered in its own colour + font
+            // + shape, so you feel the personality before choosing.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)],
                       alignment: .leading, spacing: 10) {
-                ForEach(Theme.allCases) { t in
-                    themeTile(t)
+                ForEach(Theme.allCases) { t in themeTile(t) }
+            }
+
+            // --- Make it yours -------------------------------------------------
+            settingRow("Accent") {
+                HStack(spacing: 7) {
+                    ForEach(Array(Self.accentOptions.enumerated()), id: \.offset) { _, opt in
+                        accentDot(opt.hex, label: opt.label)
+                    }
                 }
             }
-            Text("Colours the pills and panel. “System” is the original look.")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+            settingRow("Material") {
+                segmented(options: [(nil, "Auto")] + SurfaceMaterial.allCases.map { ($0.rawValue, $0.label) },
+                          selection: $themeMaterial)
+            }
+            settingRow("Dynamic") {
+                segmented(options: [(nil, "Off"), ("wallpaper", "Match wallpaper"), ("daynight", "Day & night")],
+                          selection: $themeMode)
+            }
+
+            // --- Share ---------------------------------------------------------
+            HStack(spacing: 8) {
+                Button { copyThemeCode() } label: { Label("Copy theme code", systemImage: "square.on.square") }
+                    .font(.system(size: 11))
+                TextField("paste a perch:theme code…", text: $themeCode)
+                    .textFieldStyle(.roundedBorder).font(.system(size: 11)).frame(maxWidth: 200)
+                Button("Apply") { applyThemeCode() }
+                    .font(.system(size: 11)).disabled(themeCode.trimmingCharacters(in: .whitespaces).isEmpty)
+                Spacer(minLength: 0)
+                // One click back to the stock look — clears the base theme AND every
+                // override (accent / material / dynamic). Disabled when already stock.
+                Button { resetTheme() } label: { Label("Reset to defaults", systemImage: "arrow.counterclockwise") }
+                    .font(.system(size: 11)).disabled(isThemeDefault)
+                    .help("Restore the default theme and clear your accent, material and dynamic overrides")
+            }
+
+            Text("A theme sets colour, typeface, corner shape and material together. Your accent and material layer over any theme; a theme code shares the whole look.")
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    /// One selectable theme tile: a mini preview on the theme's own surface
-    /// (status dots + a name in the theme's own ink), ringed when selected.
+    /// One selectable theme tile — a real mini-Perch (pill + card) in the theme's
+    /// own identity so the picker shows font + shape + colour, not four dots.
     private func themeTile(_ t: Theme) -> some View {
         let selected = theme == t.id
-        let p = t.palette
-        return Button {
-            theme = t.id
-        } label: {
-            HStack(spacing: 8) {
-                Text(t.label)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(p.onSurface)
-                    .lineLimit(1)
-                Spacer(minLength: 6)
-                HStack(spacing: 3) {
-                    ForEach(Array([p.good, p.warning, p.critical, p.accent].enumerated()), id: \.offset) { _, c in
-                        Circle().fill(c).frame(width: 9, height: 9)
+        let st = t.style
+        return Button { theme = t.id } label: {
+            ThemePreview(style: st, name: t.label, tagline: t.tagline, compact: true)
+                .overlay(alignment: .topTrailing) {
+                    if selected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13)).foregroundStyle(st.palette.accent)
+                            .padding(6)
                     }
                 }
-                if selected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 11)).foregroundStyle(p.accent)
-                }
-            }
-            .padding(.horizontal, 10).padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 8).fill(p.surface))
-            .overlay(RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(selected ? Color.accentColor : p.onSurface.opacity(0.15),
-                              lineWidth: selected ? 2 : 1))
-            .contentShape(Rectangle())
+                .overlay(RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(selected ? Color.accentColor : Color.white.opacity(0.1),
+                                  lineWidth: selected ? 2 : 1))
         }
         .buttonStyle(.plain)
+    }
+
+    /// An accent swatch. The "Auto" (nil) option shows the current theme's own
+    /// accent so it's never blank.
+    private func accentDot(_ hex: String?, label: String) -> some View {
+        let color = hex.flatMap { Color(hex: $0) } ?? resolvedStyle.palette.accent
+        let selected = themeAccent == hex
+        return Button { themeAccent = hex } label: {
+            ZStack {
+                Circle().fill(color).frame(width: 20, height: 20)
+                if hex == nil {
+                    Image(systemName: "wand.and.stars").font(.system(size: 9)).foregroundStyle(.white.opacity(0.9))
+                }
+            }
+            .overlay(Circle().strokeBorder(selected ? Color.white : .clear, lineWidth: 2))
+        }
+        .buttonStyle(.plain).help(label)
+    }
+
+    /// A tiny generic segmented control over (id, label) options binding to an
+    /// optional String — reused for material and dynamic mode (no duplication).
+    private func segmented(options: [(String?, String)], selection: Binding<String?>) -> some View {
+        HStack(spacing: 3) {
+            ForEach(Array(options.enumerated()), id: \.offset) { _, opt in
+                let on = selection.wrappedValue == opt.0
+                Button { selection.wrappedValue = opt.0 } label: {
+                    Text(opt.1).font(.system(size: 11, weight: on ? .semibold : .regular))
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 7).fill(on ? Color.accentColor : .clear))
+                        .foregroundStyle(on ? Color.white : Color.primary.opacity(0.75))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3).background(RoundedRectangle(cornerRadius: 9).fill(Color.primary.opacity(0.06)))
+    }
+
+    private func settingRow<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(label).font(.system(size: 12, weight: .medium)).frame(width: 70, alignment: .leading)
+            content()
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func copyThemeCode() {
+        let code = ThemeCode.encode(theme: theme, accent: themeAccent, material: themeMaterial, mode: themeMode)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(code, forType: .string)
+    }
+
+    private func applyThemeCode() {
+        guard let decoded = ThemeCode.decode(themeCode) else { return }
+        theme = decoded.theme
+        themeAccent = decoded.accent
+        themeMaterial = decoded.material
+        themeMode = decoded.mode
+        themeCode = ""
+    }
+
+    /// True when the theme is already the shipped default — base "system" with no
+    /// accent/material/dynamic override — so "Reset" can disable itself.
+    private var isThemeDefault: Bool {
+        theme == GlobalSettings.defaultThemeID && themeAccent == nil
+            && themeMaterial == nil && themeMode == nil
+    }
+
+    /// Back to the stock look in one click: the default base theme and no overrides.
+    /// Persisted through the normal Save path, like every other theme control.
+    private func resetTheme() {
+        theme = GlobalSettings.defaultThemeID
+        themeAccent = nil
+        themeMaterial = nil
+        themeMode = nil
+        themeCode = ""
     }
 
     // MARK: - Behaviour
@@ -773,7 +891,9 @@ struct SettingsView: View {
         let trimmed = quietHours.trimmingCharacters(in: .whitespaces)
         out.global = GlobalSettings(autoOpenOnRed: autoOpenOnRed,
                                     quietHours: trimmed.isEmpty ? nil : trimmed,
-                                    theme: theme, notchBanner: notchBanner,
+                                    theme: theme, themeAccent: themeAccent,
+                                    themeMaterial: themeMaterial, themeMode: themeMode,
+                                    notchBanner: notchBanner,
                                     thresholds: thresholds, pacing: pacing)
         onSave(out)
     }

@@ -56,7 +56,8 @@ public struct NotchRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .coordinateSpace(name: Self.coordinateSpace)
         .onPreferenceChange(InteractiveFramesKey.self) { onInteractiveFrames($0) }
-        .environment(\.palette, model.palette)   // the active theme skins everything below
+        .environment(\.theme, model.themeStyle)   // full identity: colour + font + shape + material
+        .environment(\.palette, model.palette)    // colour-only views keep reading this
         .animation(.easeInOut(duration: 0.2), value: model.leftPill)
         .animation(.easeInOut(duration: 0.2), value: model.rightPill)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: model.isPanelOpen)

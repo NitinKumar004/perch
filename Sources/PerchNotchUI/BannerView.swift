@@ -10,6 +10,7 @@ struct BannerView: View {
     private let banner: BannerAlert
     private let onTap: () -> Void
     @Environment(\.palette) private var palette
+    @Environment(\.theme) private var theme
 
     /// The scrolling text area width — the element stays this size in the bar
     /// regardless of message length; longer text marquees inside it.
@@ -32,7 +33,7 @@ struct BannerView: View {
                 .clipped()
                 .foregroundStyle(accent)
             MarqueeText(text: text, width: textWidth,
-                        font: .system(size: 11, weight: .medium, design: .monospaced),
+                        font: theme.font(11, .medium),
                         color: accent)
         }
         .padding(.horizontal, 8)

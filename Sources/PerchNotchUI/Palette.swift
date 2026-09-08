@@ -71,7 +71,7 @@ public extension Palette {
 /// config by its `rawValue`, so the id is stable and round-trips cleanly (a
 /// `Palette`'s `Color`s don't).
 public enum Theme: String, Sendable, CaseIterable, Identifiable {
-    case system, midnight, terminal, solarized, nord, highContrast
+    case system, midnight, terminal, solarized, nord, highContrast, aurora
 
     public var id: String { rawValue }
 
@@ -84,60 +84,81 @@ public enum Theme: String, Sendable, CaseIterable, Identifiable {
         case .solarized:    return "Solarized"
         case .nord:         return "Nord"
         case .highContrast: return "High Contrast"
+        case .aurora:       return "Aurora"
         }
     }
 
-    /// The palette this theme renders with.
-    public var palette: Palette {
+    /// A one-line personality shown under the name — themes have a voice.
+    public var tagline: String {
         switch self {
-        case .system: return .system
+        case .system:       return "the native look"
+        case .midnight:     return "deep, soft, glowing"
+        case .terminal:     return "green phosphor, sharp"
+        case .solarized:    return "warm, classic, calm"
+        case .nord:         return "arctic, muted, frosted"
+        case .highContrast: return "bold and legible"
+        case .aurora:       return "adapts to your wallpaper"
+        }
+    }
 
-        case .midnight:  // cool blues/violets on deep navy
-            return Palette(
+    /// The COMPLETE identity this theme renders with — colour + typeface + shape
+    /// + material. A theme is a variation across all four, not just colour.
+    public var style: ThemeStyle {
+        switch self {
+        case .system:
+            return ThemeStyle(palette: .system, typeface: .monospaced,
+                              cornerScale: 1.0, material: .solid)
+
+        case .midnight:  // cool blues/violets on deep navy — rounded & glowing
+            return ThemeStyle(palette: Palette(
                 neutral:  Color(red: 0.78, green: 0.82, blue: 0.95),
-                good:     Color(red: 0.40, green: 0.80, blue: 0.74),
-                warning:  Color(red: 0.95, green: 0.77, blue: 0.45),
-                critical: Color(red: 0.98, green: 0.50, blue: 0.55),
-                info:     Color(red: 0.52, green: 0.72, blue: 1.00),
-                accent:   Color(red: 0.62, green: 0.60, blue: 0.98),
-                surface:  Color(red: 0.05, green: 0.06, blue: 0.12),
-                onSurface: Color(red: 0.86, green: 0.89, blue: 1.00))
+                good:     Color(red: 0.37, green: 0.88, blue: 0.75),
+                warning:  Color(red: 0.97, green: 0.73, blue: 0.35),
+                critical: Color(red: 1.00, green: 0.48, blue: 0.60),
+                info:     Color(red: 0.49, green: 0.62, blue: 1.00),
+                accent:   Color(red: 0.49, green: 0.62, blue: 1.00),
+                surface:  Color(red: 0.05, green: 0.06, blue: 0.16),
+                onSurface: Color(red: 0.92, green: 0.94, blue: 1.00)),
+                typeface: .rounded, cornerScale: 1.4, material: .glow)
 
-        case .terminal:  // green-on-near-black, classic console
-            return Palette(
-                neutral:  Color(red: 0.72, green: 0.78, blue: 0.72),
-                good:     Color(red: 0.36, green: 0.90, blue: 0.44),
-                warning:  Color(red: 0.90, green: 0.82, blue: 0.36),
-                critical: Color(red: 0.98, green: 0.44, blue: 0.40),
-                info:     Color(red: 0.40, green: 0.85, blue: 0.80),
-                accent:   Color(red: 0.36, green: 0.90, blue: 0.44),
-                surface:  Color(red: 0.02, green: 0.04, blue: 0.02),
-                onSurface: Color(red: 0.80, green: 0.94, blue: 0.80))
+        case .terminal:  // green-on-near-black console — mono & sharp-cornered
+            return ThemeStyle(palette: Palette(
+                neutral:  Color(red: 0.44, green: 0.68, blue: 0.44),
+                good:     Color(red: 0.22, green: 1.00, blue: 0.42),
+                warning:  Color(red: 0.84, green: 1.00, blue: 0.22),
+                critical: Color(red: 1.00, green: 0.36, blue: 0.36),
+                info:     Color(red: 0.30, green: 0.95, blue: 0.85),
+                accent:   Color(red: 0.22, green: 1.00, blue: 0.42),
+                surface:  Color(red: 0.00, green: 0.03, blue: 0.00),
+                onSurface: Color(red: 0.72, green: 1.00, blue: 0.72)),
+                typeface: .monospaced, cornerScale: 0.25, material: .solid)
 
-        case .solarized:  // the classic dev palette (dark base)
-            return Palette(
+        case .solarized:  // the classic dev palette (dark base) — mono, calm
+            return ThemeStyle(palette: Palette(
                 neutral:  Color(red: 0.58, green: 0.63, blue: 0.63),
                 good:     Color(red: 0.52, green: 0.60, blue: 0.00),
                 warning:  Color(red: 0.71, green: 0.54, blue: 0.00),
                 critical: Color(red: 0.86, green: 0.20, blue: 0.18),
                 info:     Color(red: 0.15, green: 0.55, blue: 0.82),
-                accent:   Color(red: 0.83, green: 0.21, blue: 0.51),
+                accent:   Color(red: 0.15, green: 0.55, blue: 0.82),
                 surface:  Color(red: 0.00, green: 0.17, blue: 0.21),
-                onSurface: Color(red: 0.51, green: 0.58, blue: 0.59))
+                onSurface: Color(red: 0.93, green: 0.91, blue: 0.84)),
+                typeface: .monospaced, cornerScale: 0.85, material: .solid)
 
-        case .nord:  // muted arctic tones
-            return Palette(
+        case .nord:  // muted arctic tones — rounded & frosted
+            return ThemeStyle(palette: Palette(
                 neutral:  Color(red: 0.85, green: 0.87, blue: 0.91),
                 good:     Color(red: 0.64, green: 0.75, blue: 0.55),
                 warning:  Color(red: 0.92, green: 0.80, blue: 0.55),
                 critical: Color(red: 0.75, green: 0.38, blue: 0.42),
-                info:     Color(red: 0.51, green: 0.63, blue: 0.76),
+                info:     Color(red: 0.53, green: 0.75, blue: 0.82),
                 accent:   Color(red: 0.53, green: 0.75, blue: 0.82),
                 surface:  Color(red: 0.18, green: 0.20, blue: 0.25),
-                onSurface: Color(red: 0.90, green: 0.91, blue: 0.94))
+                onSurface: Color(red: 0.93, green: 0.94, blue: 0.96)),
+                typeface: .rounded, cornerScale: 1.25, material: .frosted)
 
-        case .highContrast:  // bold, accessible separations
-            return Palette(
+        case .highContrast:  // bold, accessible separations — system face, crisp
+            return ThemeStyle(palette: Palette(
                 neutral:  .white,
                 good:     Color(red: 0.30, green: 1.00, blue: 0.40),
                 warning:  Color(red: 1.00, green: 0.85, blue: 0.10),
@@ -145,9 +166,26 @@ public enum Theme: String, Sendable, CaseIterable, Identifiable {
                 info:     Color(red: 0.40, green: 0.80, blue: 1.00),
                 accent:   Color(red: 1.00, green: 1.00, blue: 0.30),
                 surface:  .black,
-                onSurface: .white)
+                onSurface: .white),
+                typeface: .system, cornerScale: 0.6, material: .solid)
+
+        case .aurora:  // wallpaper-adaptive; ships a vivid default — rounded, frosted
+            return ThemeStyle(palette: Palette(
+                neutral:  Color(red: 0.85, green: 0.80, blue: 0.92),
+                good:     Color(red: 0.49, green: 0.91, blue: 0.77),
+                warning:  Color(red: 0.99, green: 0.83, blue: 0.30),
+                critical: Color(red: 0.98, green: 0.44, blue: 0.52),
+                info:     Color(red: 0.66, green: 0.72, blue: 1.00),
+                accent:   Color(red: 0.94, green: 0.67, blue: 0.99),
+                surface:  Color(red: 0.12, green: 0.06, blue: 0.20),
+                onSurface: Color(red: 0.99, green: 0.96, blue: 1.00)),
+                typeface: .rounded, cornerScale: 1.5, material: .frosted)
         }
     }
+
+    /// Back-compat sugar: the theme's colours. Everything colour-only still reads
+    /// `.palette`; the richer views read the full `.style`.
+    public var palette: Palette { style.palette }
 }
 
 // MARK: - Environment plumbing

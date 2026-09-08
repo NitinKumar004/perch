@@ -231,9 +231,13 @@ struct PanelView: View {
     /// glance; the panel scrolls when there are more than fit.
     @ViewBuilder
     private func combinedGrid(_ rows: [DetailRow]) -> some View {
+        // FIXED column width, not flexible: two 166pt columns + 8pt gap + 28pt
+        // padding = 368pt < the 380pt card. Fixed columns can never expand to make
+        // the panel overflow — flexible ones did, and no outer frame could shrink
+        // them back below their content's minimum, so the labels got sliced off.
         LazyVGrid(
-            columns: [GridItem(.flexible(), spacing: 8, alignment: .top),
-                      GridItem(.flexible(), spacing: 8, alignment: .top)],
+            columns: [GridItem(.fixed(166), spacing: 8, alignment: .top),
+                      GridItem(.fixed(166), spacing: 8, alignment: .top)],
             alignment: .leading, spacing: 8
         ) {
             ForEach(rows) { row in metricBlock(row) }
@@ -394,19 +398,25 @@ struct PanelView: View {
                     .frame(width: 16)
             }
             VStack(alignment: .leading, spacing: 1) {
-                ScrollableLine {
-                    Text(row.title)
-                        .font(.system(size: 12))
-                        .foregroundStyle(palette.ink(0.9))
-                }
+                Text(row.title)
+                    .font(.system(size: 12))
+                    .foregroundStyle(palette.ink(0.9))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 if let subtitle = row.subtitle {
-                    ScrollableLine {
-                        Text(subtitle)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(palette.ink(0.5))
-                    }
+                    Text(subtitle)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(palette.ink(0.5))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
+            // Take the offered width and truncate at its edge. Plain Text reports a
+            // small minimum width (it can shrink and ellipsize), unlike the old
+            // .fixedSize scroll wrapper which reported each row's FULL width as an
+            // unshrinkable minimum and blew the panel past 380pt. Full text on hover.
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .help(row.subtitle.map { "\(row.title) · \($0)" } ?? row.title)
             Spacer(minLength: 8)
             if let points = row.sparkline, points.count > 1 {
                 Sparkline(points: points, color: tintColor(row.tint))
@@ -515,20 +525,3 @@ private extension View {
     }
 }
 
-/// A single line of content the user can SWIPE sideways to read in full when it's
-/// too long — instead of it being cut off with an ellipsis. No animation: it only
-/// moves when the user scrolls it (two-finger swipe). Short content that already
-/// fits just doesn't scroll. Vertical swipes pass through to the panel's own
-/// scroll, and a click still activates the enclosing row (scroll ≠ tap).
-struct ScrollableLine<Content: View>: View {
-    @ViewBuilder let content: () -> Content
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            content()
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)   // never truncate; overflow scrolls
-        }
-        // Don't let the horizontal scroll steal vertical drags from the panel.
-        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-    }
-}

@@ -59,6 +59,16 @@ public final class NotchWindowController {
     private let pillZone: CGFloat = 400
     private let groupedWidth: CGFloat = 320
     private let panelDrop: CGFloat = 320
+    /// The open panel card is a fixed 380pt wide (see PanelView). The window must
+    /// be at least this wide in the grouped positions (.right/.below), or the card
+    /// is wider than its own window and gets clipped on both edges. +16 leaves a
+    /// little breathing room for the card's border/shadow.
+    private let cardWidth: CGFloat = 380 + 16
+    /// Space reserved on the RIGHT of the menu bar for the system extras (Wi-Fi,
+    /// clock, Control Center…). macOS doesn't expose where those sit, so we keep a
+    /// sensible margin and never let the flank window grow into it — that's what
+    /// stops a wide pill or the alert banner from overlapping them.
+    private let systemExtrasReserve: CGFloat = 340
     private var position: HUDPosition = .flank
 
     public init(model: NotchViewModel,
@@ -207,22 +217,33 @@ public final class NotchWindowController {
         let originY: CGFloat
         switch position {
         case .flank:
-            // Pills flank the physical notch, flush in the menu bar. Clamp the
-            // window to the screen so a very wide pill never runs off the edge.
+            // Pills flank the physical notch, flush in the menu bar. The zone on
+            // EACH side of the notch is capped to the free space before the system
+            // extras on the right — so a wide pill or the alert banner is kept in
+            // the empty part of the bar and never grows over the Wi-Fi/clock icons.
+            // (Symmetric, so the notch gap stays centred on the physical notch; the
+            // left side has even more room, so the right is the binding limit.)
             model.notchWidth = metrics.notchWidth
-            width = min(frameRect.width, metrics.notchWidth + pillZone * 2)
+            let notchRightEdge = frameRect.midX + metrics.notchWidth / 2
+            let rightFree = max(140, (frameRect.maxX - systemExtrasReserve) - notchRightEdge)
+            let halfZone = min(pillZone, rightFree)
+            width = min(frameRect.width, metrics.notchWidth + halfZone * 2)
             originX = frameRect.midX - width / 2
             originY = frameRect.maxY - height
         case .right:
             // Grouped just right of the notch — clear of the app menus (left).
+            // Width must fit the open panel card (380pt), not just the compact
+            // pills, or the card overflows this window and clips. Clamp so the
+            // window never runs off the right screen edge.
             model.notchWidth = 0
-            width = groupedWidth
-            originX = frameRect.midX + metrics.notchWidth / 2
+            let rightStart = frameRect.midX + metrics.notchWidth / 2
+            width = min(max(groupedWidth, cardWidth), frameRect.maxX - rightStart)
+            originX = rightStart
             originY = frameRect.maxY - height
         case .below:
             // Grouped, centered, hanging just below the menu bar (non-notch).
             model.notchWidth = 0
-            width = groupedWidth
+            width = max(groupedWidth, cardWidth)
             originX = frameRect.midX - width / 2
             originY = frameRect.maxY - height - metrics.notchHeight
         }

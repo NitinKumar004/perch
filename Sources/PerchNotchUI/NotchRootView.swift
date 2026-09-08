@@ -92,13 +92,17 @@ public struct NotchRootView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// Pills grouped together (right-of-notch / below layouts).
+    /// Pills grouped together (right-of-notch / below layouts). In the
+    /// right-of-notch layout the window sits just right of the notch, so the pills
+    /// hug the LEFT (next to the notch) — that keeps a wide combined pill from
+    /// growing into the menu-bar extras on the far right. The below layout is
+    /// centred under the menu bar as usual.
     private var groupedRow: some View {
         HStack(spacing: 6) {
             if let left = model.leftPill { pill(left) }
             if let right = model.rightPill { pill(right) }
         }
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity, alignment: model.hudPosition == .right ? .leading : .center)
     }
 
     /// The alert shown in-place in the pill row. It takes over whichever pill is

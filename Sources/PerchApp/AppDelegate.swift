@@ -454,7 +454,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "bird.fill", accessibilityDescription: "Perch")
+        // A TEMPLATE image so the menu bar renders it in the bar's own colour —
+        // white on a dark menu bar, black on a light one — instead of a fixed dark
+        // glyph that's invisible on a dark bar. The alert tint (contentTintColor,
+        // set in refreshStatusIcon) still colours it red/amber when something's
+        // wrong; nil tint falls back to this adaptive template colour.
+        let icon = NSImage(systemSymbolName: "bird.fill", accessibilityDescription: "Perch")
+        icon?.isTemplate = true
+        item.button?.image = icon
 
         let menu = NSMenu()
         menu.addItem(withTitle: "Perch — notch HUD", action: nil, keyEquivalent: "")

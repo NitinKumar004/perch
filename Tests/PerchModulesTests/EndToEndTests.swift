@@ -168,19 +168,20 @@ private func firstRender(_ module: AnyNotchModule,
     }
     // First observation is a silent baseline.
     #expect(m.notification(for: PRState(count: 1, items: [pr(1)]), previous: nil) == nil)
-    // A PR that gains a merge conflict → an alert naming it.
+    // A PR that gains a merge conflict → an alert LEADING with the signal (so a
+    // long PR title never buries the reason behind the marquee); the title trails.
     let conflict = m.notification(
         for: PRState(count: 1, items: [pr(1, mergeable: "CONFLICTING")]),
         previous: PRState(count: 1, items: [pr(1)]))
-    #expect(conflict?.title == "#1 feat 1")
-    #expect(conflict?.body == "now has merge conflicts")
+    #expect(conflict?.title == "#1 · now has merge conflicts")
+    #expect(conflict?.body == "feat 1")
     #expect(conflict?.id.hasPrefix("pr-o/r#1-conflicts-") == true)
-    // Two PRs change at once → the worst leads, the rest summarised.
+    // Two PRs change at once → the worst leads, the rest summarised in the title.
     let many = m.notification(
         for: PRState(count: 2, items: [pr(1, mergeable: "CONFLICTING"), pr(2, reviews: 1)]),
         previous: PRState(count: 2, items: [pr(1), pr(2)]))
-    #expect(many?.title == "#1 feat 1")
-    #expect(many?.body.contains("+1 more") == true)
+    #expect(many?.title == "#1 · now has merge conflicts  ·  +1 more")
+    #expect(many?.body == "feat 1")
 }
 
 @Test func buildRowIDsAreUniquePerRepo() {

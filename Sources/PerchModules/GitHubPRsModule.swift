@@ -168,10 +168,16 @@ public struct GitHubPRsModule: NotchModule {
                                            previousCount: previous.count, currentCount: value.count)
         guard let top = changes.max(by: { $0.kind < $1.kind }) else { return nil }
         let extra = changes.count - 1
+        // Lead with the SIGNAL ("#2821 · changes requested"), not the PR title —
+        // the banner marquees, so a long title would push the actual reason out of
+        // view for several seconds ("empty then the message arrives"). Short,
+        // signal-first text is fully readable the instant the banner appears; the
+        // PR title trails as context.
+        let more = extra > 0 ? "  ·  +\(extra) more" : ""
         return ModuleAlert(
             id: top.id,
-            title: "#\(top.number) \(top.title)",
-            body: extra > 0 ? "\(top.phrase)  ·  +\(extra) more" : top.phrase,
+            title: "#\(top.number) · \(top.phrase)\(more)",
+            body: top.title,
             url: top.url)
     }
 

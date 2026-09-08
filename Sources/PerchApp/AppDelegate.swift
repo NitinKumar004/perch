@@ -167,7 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateItem?.title = "Downloading \(info.version)…"
         model.updateStatus = .downloading(version: info.version)
         Task {
-            let result = await SelfUpdater.installUpdate(from: zip)
+            let result = await SelfUpdater.installUpdate(from: zip, signatureURL: URL(string: info.signatureURL))
             switch result {
             case .relaunching:
                 break   // app is terminating; the swap script relaunches it

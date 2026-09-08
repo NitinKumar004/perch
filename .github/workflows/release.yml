@@ -26,12 +26,23 @@ jobs:
       - name: Checksum
         run: shasum -a 256 Perch.zip | tee Perch.zip.sha256
 
+      # Sign the zip with the maintainer's Ed25519 private key (a repo secret).
+      # The app verifies this against its baked-in public key before installing an
+      # update, so a swapped/forged release asset is rejected. Fails the release
+      # if the secret is missing — better no release than an unsigned one that
+      # would break signature-checking clients.
+      - name: Sign release
+        env:
+          PERCH_UPDATE_PRIVATE_KEY: ${{ secrets.PERCH_UPDATE_PRIVATE_KEY }}
+        run: swift scripts/sign-release.swift Perch.zip Perch.zip.sig
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             Perch.zip
             Perch.zip.sha256
+            Perch.zip.sig
           body: |
             Install:
 

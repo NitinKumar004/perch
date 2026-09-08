@@ -15,6 +15,9 @@ struct UpdateInfo: Sendable, Equatable {
     let pageURL: String
     /// The downloadable app zip for in-app install.
     let zipURL: String
+    /// The detached Ed25519 signature for `zipURL` (`Perch.zip.sig`), verified
+    /// against the baked-in public key before install.
+    let signatureURL: String
 }
 
 /// Checks GitHub Releases for a newer Perch and reports it. This is the honest
@@ -44,9 +47,10 @@ struct UpdateChecker: Sendable {
         }
         guard SemanticVersion.isNewer(release.tagName, than: currentVersion) else { return nil }
         let page = release.htmlURL ?? "https://github.com/NitinKumar004/perch/releases/latest"
-        // The release workflow always publishes Perch.zip as a release asset.
-        let zip = "https://github.com/NitinKumar004/perch/releases/download/\(release.tagName)/Perch.zip"
-        return UpdateInfo(version: release.tagName, pageURL: page, zipURL: zip)
+        // The release workflow publishes Perch.zip + its Ed25519 signature.
+        let base = "https://github.com/NitinKumar004/perch/releases/download/\(release.tagName)"
+        return UpdateInfo(version: release.tagName, pageURL: page,
+                          zipURL: "\(base)/Perch.zip", signatureURL: "\(base)/Perch.zip.sig")
     }
 
     private struct Release: Decodable {

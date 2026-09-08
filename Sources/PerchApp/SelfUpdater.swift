@@ -20,8 +20,10 @@ enum SelfUpdater {
     }
 
     /// Download `zipURL` and swap this bundle for it. On success the app quits
-    /// and the detached script relaunches the new copy.
-    static func installUpdate(from zipURL: URL) async -> Result {
+    /// and the detached script relaunches the new copy. When signature checking
+    /// is active, the zip is verified against the baked-in public key BEFORE the
+    /// swap — a forged/tampered release is rejected, never installed.
+    static func installUpdate(from zipURL: URL, signatureURL: URL?) async -> Result {
         guard let bundleURL = bundleAppURL() else { return .unsupported }
 
         let tmp = FileManager.default.temporaryDirectory
@@ -36,6 +38,32 @@ enum SelfUpdater {
             let zipPath = tmp.appendingPathComponent("Perch.zip")
             try? FileManager.default.removeItem(at: zipPath)
             try FileManager.default.moveItem(at: downloaded, to: zipPath)
+
+            // Verify the signature before we do anything with the bytes. Fail
+            // CLOSED: with a key configured, a missing/bad signature aborts the
+            // install rather than trusting an unverified download.
+            //
+            // Scope note (accepted residual): the signature binds the zip BYTES,
+            // not the version tag. An attacker who could rewrite a GitHub release's
+            // assets (without holding the offline signing key) could re-attach an
+            // OLD, validly-signed Perch under a newer tag — a bounded downgrade to
+            // a genuine past build. Holding the private key stays the real barrier;
+            // binding version+hash is a possible future hardening, not shipped here.
+            if UpdateSignature.isEnabled {
+                guard let signatureURL else { return .failed("update is not signed — refusing to install") }
+                let sigBase64 = await fetchSignature(signatureURL)
+                // Read the zip + verify off the main actor — reading a multi-MB
+                // file shouldn't stall the notch UI (same reason the ditto unpack
+                // is detached below).
+                let zipPathString = zipPath.path
+                let allowed = await Task.detached {
+                    let zipData = try? Data(contentsOf: URL(fileURLWithPath: zipPathString))
+                    return UpdateSignature.allowInstall(zipData: zipData, signatureBase64: sigBase64)
+                }.value
+                guard allowed else {
+                    return .failed("update signature could not be verified — refusing to install")
+                }
+            }
 
             // Unpack with ditto (handles the app bundle's symlinks correctly).
             // Off the main actor: ditto blocks for seconds on a multi-MB bundle,
@@ -57,6 +85,16 @@ enum SelfUpdater {
         } catch {
             return .failed("\(error.localizedDescription)")
         }
+    }
+
+    /// Fetch the base64 signature file (`Perch.zip.sig`), or nil on any failure.
+    private static func fetchSignature(_ url: URL) async -> String? {
+        guard let (data, response) = try? await URLSession.shared.data(from: url),
+              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            return nil
+        }
+        // The .sig file is the base64 signature (possibly with trailing newline).
+        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// The path of the running `.app` bundle, or nil under `swift run`.

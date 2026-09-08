@@ -42,6 +42,27 @@ private func tempConfigURL() -> URL {
     #expect(loaded.current?.leftPill?.settings["repo"] == "acme/api")
 }
 
+@Test func handEditedPresetMissingEmptyFieldsStillLoads() throws {
+    // A hand-written layout.json that omits `panel` (a preset) and `settings` (a
+    // binding) — both "default to empty" — must load, NOT fail the whole decode
+    // and wipe every preset to defaults.
+    let url = tempConfigURL()
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data(#"""
+    {"schemaVersion":2,"activePreset":"work","presets":{
+      "work":{"leftPill":{"module":"system.clock"}},
+      "keep":{"panel":[{"module":"system.cpu"}]}
+    }}
+    """#.utf8).write(to: url)
+
+    let loaded = ConfigStore(fileURL: url).load()
+    #expect(loaded.activePreset == "work")                       // not reset to "default"
+    #expect(loaded.presets["work"]?.leftPill?.module == "system.clock")
+    #expect(loaded.presets["work"]?.panel == [])                 // omitted panel → empty, not a throw
+    #expect(loaded.presets["work"]?.leftPill?.settings == [:])   // omitted settings → empty
+    #expect(loaded.presets["keep"] != nil)                       // the other preset survived
+}
+
 @Test func corruptFileBacksUpAndResets() throws {
     let url = tempConfigURL()
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

@@ -64,7 +64,11 @@ public struct GitHubBuildsModule: NotchModule {
                 continuation.yield(Snapshot(value: .unknown, freshness: .unknown, asOf: clock.now()))
 
                 while !Task.isCancelled {
-                    var nextDelay: Double = 60
+                    var nextDelay: Double = idleInterval
+                    // Respect the shared rate-limit budget so several GitHub pollers
+                    // running together back off in concert before hitting a 403.
+                    let throttle = await client.rateLimit.throttleDelay()
+                    if throttle > 0 { try? await Task.sleep(for: .seconds(min(throttle, 60))) }
                     do {
                         let fetch = try await client.latestBuild(owner: owner, repo: repo, branch: branch, etag: etag)
                         failures = 0
@@ -92,6 +96,18 @@ public struct GitHubBuildsModule: NotchModule {
                         case .ok(nil, let newEtag):
                             etag = newEtag
                             if lastLog != "none" { print("[perch] build poll \(key): no runs found"); lastLog = "none" }
+                            // No runs (e.g. the last one aged out of Actions' 90-day
+                            // retention) — surface a fresh "unknown" so the pill
+                            // doesn't freeze on a stale "passing/failing" forever,
+                            // and honour the configured idle interval like every
+                            // other branch (was silently stuck at the 60s default).
+                            // Forget the stored build too, so a LATER transient
+                            // fetch error's catch-path can't resurrect the old
+                            // "passing/failing" as stale.
+                            await store.remove(forKey: key)
+                            lastState = .unknown
+                            continuation.yield(Snapshot(value: .unknown, freshness: .live, asOf: clock.now()))
+                            nextDelay = idleInterval
                         }
                     } catch {
                         failures += 1

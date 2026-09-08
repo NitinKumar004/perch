@@ -79,6 +79,10 @@ public struct GitHubPRsModule: NotchModule {
 
                 while !Task.isCancelled {
                     var nextDelay: Double = interval
+                    // Respect the shared rate-limit budget so several GitHub pollers
+                    // running together back off in concert before hitting a 403.
+                    let throttle = await client.rateLimit.throttleDelay()
+                    if throttle > 0 { try? await Task.sleep(for: .seconds(min(throttle, 60))) }
                     do {
                         let observation = try await client.pullRequestList(queue: queue, repos: repos, limit: limit, now: clock.now())
                         if lastError != nil { print("[perch] pr poll \(key): recovered"); lastError = nil }
@@ -209,9 +213,13 @@ public struct GitHubPRsModule: NotchModule {
         return value.items.map { pr in
             let review = Self.status(for: pr)
             let ci = value.showChecks ? Self.ciStatus(pr.checksState, done: pr.checksDone, total: pr.checksTotal) : nil
-            // Subtitle names the source, plus whichever of CI / review the user
-            // chose to show; the row escalates to red if CI is failing.
-            let parts = [pr.repo, ci?.label, value.showReview ? review.label : nil].compactMap { $0 }
+            // Subtitle names the source, whichever of CI / review the user chose to
+            // show, and a comment count — so active discussion stays visible even
+            // when a review DECISION word (e.g. "awaiting re-review") would
+            // otherwise hide it. The note is skipped when the review label already
+            // conveys comments (the "commented" / "N comments" fallback).
+            let note = value.showReview ? Self.commentNote(for: pr, reviewLabel: review.label) : nil
+            let parts = [pr.repo, ci?.label, value.showReview ? review.label : nil, note].compactMap { $0 }
             let tint: Tint = (ci?.tint == .critical) ? .critical : (value.showReview ? review.tint : .info)
             return DetailRow(
                 id: "pr-\(pr.repo)-\(pr.number)",
@@ -222,6 +230,20 @@ public struct GitHubPRsModule: NotchModule {
                 url: pr.url,
                 progress: ci?.progress)
         }
+    }
+
+    /// "N comment(s)" — the one place this string is built, so the row note and
+    /// the review-label fallback can't drift apart.
+    static func pluralComment(_ n: Int) -> String { "\(n) comment\(n == 1 ? "" : "s")" }
+
+    /// A comment-count note for the panel row, so conversation stays visible next
+    /// to the review-gate label. nil when there are none, or when the review label
+    /// is ALREADY the exact same count (the "N comments" fallback) — but a bare
+    /// "commented" (a COMMENT-type review, no count) still gets the note, since
+    /// that's a different signal from the conversation-comment total.
+    static func commentNote(for pr: PRSummary, reviewLabel: String) -> String? {
+        guard pr.commentCount > 0, reviewLabel != pluralComment(pr.commentCount) else { return nil }
+        return pluralComment(pr.commentCount)
     }
 
     /// Map a PR's review + merge status to a label, tint, and icon.
@@ -247,9 +269,7 @@ public struct GitHubPRsModule: NotchModule {
             // comments". (A plain "Comment" review never sets reviewDecision, so
             // "open" alone hides that the PR has been looked at.)
             if pr.reviewCount > 0 { return ("commented", .info, "text.bubble.fill") }
-            if pr.commentCount > 0 {
-                return ("\(pr.commentCount) comment\(pr.commentCount == 1 ? "" : "s")", .info, "bubble.left.fill")
-            }
+            if pr.commentCount > 0 { return (pluralComment(pr.commentCount), .info, "bubble.left.fill") }
             return ("open", .info, "arrow.triangle.pull")
         }
     }

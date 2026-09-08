@@ -61,3 +61,14 @@ private let v200 = Date(timeIntervalSince1970: 200)
     let missing = await store.snapshot(forKey: "nope", ttl: 60)
     #expect(missing == nil)
 }
+
+@Test func removeForgetsTheValueSoItCantResurrectAsStale() async {
+    let store = VersionedStore<String, Int>(clock: TestClock())
+    _ = await store.apply(7, forKey: "build", version: Date(timeIntervalSince1970: 100))
+    #expect(await store.snapshot(forKey: "build", ttl: 0)?.value == 7)   // present (even at ttl 0, as stale)
+    await store.remove(forKey: "build")
+    // After remove, a later read returns nil — the old value can't come back as
+    // ".stale" (this is what stops a "no runs" build resurrecting an old "passing").
+    #expect(await store.snapshot(forKey: "build", ttl: 0) == nil)
+    #expect(await store.version(forKey: "build") == nil)
+}

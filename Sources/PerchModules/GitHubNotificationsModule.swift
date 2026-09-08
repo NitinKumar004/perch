@@ -60,6 +60,10 @@ public struct GitHubNotificationsModule: NotchModule {
                 continuation.yield(Snapshot(value: .empty, freshness: .unknown, asOf: clock.now()))
                 while !Task.isCancelled {
                     var nextDelay = interval
+                    // Respect the shared rate-limit budget so several GitHub pollers
+                    // running together back off in concert before hitting a 403.
+                    let throttle = await client.rateLimit.throttleDelay()
+                    if throttle > 0 { try? await Task.sleep(for: .seconds(min(throttle, 60))) }
                     do {
                         let fetch = try await client.notifications(etag: etag)
                         failures = 0

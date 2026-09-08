@@ -237,12 +237,16 @@ private func firstRender(_ module: AnyNotchModule,
                                 fileShelfController: FileShelfController())
     let m = factory.makeModule(for: SlotBinding(module: "system.combined",
                                                 settings: ["incCPU": "true", "incMemory": "true"]))!
-    let render = await firstRender(m) { r in
-        r.pill.face.text.contains("CPU") && r.pill.face.text.contains("RAM")
-    }
-    #expect(render != nil)
+    // The FIRST live render must already carry BOTH members — the combined stream
+    // stays .unknown until every member has reported once, so a partial (one
+    // member) render never looks live. This preserves the "first live = silent
+    // baseline" invariant: an already-critical member at launch is folded into
+    // the baseline, not seen as a fresh transition that fires a false auto-open.
+    let firstLive = await firstRender(m) { $0.pill.freshness == .live }
+    #expect(firstLive?.pill.face.text.contains("CPU") == true)
+    #expect(firstLive?.pill.face.text.contains("RAM") == true)
     // Panel shows each member as its own row (mini dashboard).
-    #expect((render?.detail.count ?? 0) >= 2)
+    #expect((firstLive?.detail.count ?? 0) >= 2)
 }
 
 @Test func e2e_networkAndVitalsProduceLiveValues() async {

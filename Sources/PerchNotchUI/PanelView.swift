@@ -393,15 +393,17 @@ struct PanelView: View {
                     .frame(width: 16)
             }
             VStack(alignment: .leading, spacing: 1) {
-                Text(row.title)
-                    .font(.system(size: 12))
-                    .foregroundStyle(palette.ink(0.9))
-                    .lineLimit(1)
+                ScrollableLine {
+                    Text(row.title)
+                        .font(.system(size: 12))
+                        .foregroundStyle(palette.ink(0.9))
+                }
                 if let subtitle = row.subtitle {
-                    Text(subtitle)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(palette.ink(0.5))
-                        .lineLimit(1)
+                    ScrollableLine {
+                        Text(subtitle)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(palette.ink(0.5))
+                    }
                 }
             }
             Spacer(minLength: 8)
@@ -483,5 +485,23 @@ private extension View {
     @ViewBuilder func ifReorderable(_ condition: Bool,
                                     _ transform: (Self) -> some View) -> some View {
         if condition { transform(self) } else { self }
+    }
+}
+
+/// A single line of content the user can SWIPE sideways to read in full when it's
+/// too long — instead of it being cut off with an ellipsis. No animation: it only
+/// moves when the user scrolls it (two-finger swipe). Short content that already
+/// fits just doesn't scroll. Vertical swipes pass through to the panel's own
+/// scroll, and a click still activates the enclosing row (scroll ≠ tap).
+struct ScrollableLine<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            content()
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)   // never truncate; overflow scrolls
+        }
+        // Don't let the horizontal scroll steal vertical drags from the panel.
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     }
 }

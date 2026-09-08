@@ -15,15 +15,16 @@ import Testing
         #expect(UpdateAvailability.releasePage(version: "1.2.0").buttonTitle == "Get 1.2.0")
     }
 
-    @Test func onlyRestingAndOfferStatesAreTappable() {
+    @Test func onlyInFlightStatesAreInert() {
         // Something to act on → tappable.
         #expect(UpdateAvailability.idle.isActionable)
         #expect(UpdateAvailability.available(version: "1.2.0").isActionable)
         #expect(UpdateAvailability.releasePage(version: "1.2.0").isActionable)
-        // Transient / terminal → shown but inert (no double-tap into a running install).
+        // "Up to date" stays tappable so the user can re-check on demand.
+        #expect(UpdateAvailability.upToDate.isActionable)
+        // Only work in flight is inert (no double-tap into a running check/install).
         #expect(!UpdateAvailability.checking.isActionable)
         #expect(!UpdateAvailability.downloading(version: "1.2.0").isActionable)
-        #expect(!UpdateAvailability.upToDate.isActionable)
     }
 
     @Test func onlyAvailableIsHighlighted() {

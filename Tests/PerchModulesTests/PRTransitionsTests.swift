@@ -63,6 +63,13 @@ import PerchGitHub
         // A genuinely new PR + the total grew → a newPR change.
         let grew = detect([pr(1)], [pr(2), pr(1)], 1, 2)
         #expect(grew.contains { $0.kind == .newPR && $0.number == 2 })
+        // The NEW PR is named even when an already-known PR sorts first (activity
+        // bumped it up) — attribution follows the diff, not list order.
+        let bumped = detect([pr(1)], [pr(1), pr(7)], 1, 2)   // #1 known & first, #7 is the new one
+        let newOnes = bumped.filter { $0.kind == .newPR }.map(\.number)
+        #expect(newOnes == [7])
+        // Its id carries repo + an episode token (dedups per occurrence, no cross-repo collision).
+        #expect(bumped.first { $0.kind == .newPR }?.id.hasPrefix("pr-o/r#7-new-") == true)
         // Same total but a different PR in the (paged) list → NOT a false "new".
         #expect(detect([pr(1)], [pr(3)], 1, 1).isEmpty)
     }
@@ -90,5 +97,24 @@ import PerchGitHub
         #expect(GitHubPRsModule.status(for: pr(reviews: 0, comments: 1)).label == "1 comment")
         // Nothing yet → still "open".
         #expect(GitHubPRsModule.status(for: pr(reviews: 0, comments: 0)).label == "open")
+    }
+
+    @Test func commentNoteShowsBesideAReviewGate() {
+        // A PR that's "awaiting re-review" but has 6 comments → the note surfaces
+        // the discussion the gate word hides.
+        #expect(GitHubPRsModule.commentNote(for: pr(reviews: 5, comments: 6, decision: "CHANGES_REQUESTED"),
+                                            reviewLabel: "awaiting re-review") == "6 comments")
+        #expect(GitHubPRsModule.commentNote(for: pr(reviews: 0, comments: 1),
+                                            reviewLabel: "approved") == "1 comment")
+        // No comments → no note.
+        #expect(GitHubPRsModule.commentNote(for: pr(reviews: 1, comments: 0),
+                                            reviewLabel: "approved") == nil)
+        // The label is ALREADY the exact same count → don't double it.
+        #expect(GitHubPRsModule.commentNote(for: pr(reviews: 0, comments: 3),
+                                            reviewLabel: "3 comments") == nil)
+        // A bare "commented" (a Comment-type review) still gets the conversation
+        // count — it's a different signal from the comment total.
+        #expect(GitHubPRsModule.commentNote(for: pr(reviews: 2, comments: 8),
+                                            reviewLabel: "commented") == "8 comments")
     }
 }

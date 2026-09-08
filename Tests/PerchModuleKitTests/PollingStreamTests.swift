@@ -56,12 +56,42 @@ import PerchCore
         #expect(samples == [7])   // the nil tick produced no emission
     }
 
+    @Test func failingReaderAfterLiveReEmitsLastValueAsStale() async {
+        let t0 = Date(timeIntervalSince1970: 1000)
+        let clock = FixedClock(date: t0)
+        // One live value (7), then nil forever — the reader broke after a good read.
+        let box = FailAfterFirst()
+        let stream = AsyncStream.periodic(every: 0.01, clock: clock, seed: -1) { await box.next() }
+
+        var snaps: [Snapshot<Int>] = []
+        for await snap in stream where snap.value != -1 {   // ignore the seed
+            snaps.append(snap)
+            if snaps.count >= 3 { break }
+        }
+        // First real emission is live; the failed ticks re-emit the last value as
+        // STALE (dated from when it was confirmed) — never a frozen "live" lie.
+        #expect(snaps[0].freshness == .live)
+        #expect(snaps[0].value == 7)
+        #expect(snaps[1].freshness == .stale(since: t0))
+        #expect(snaps[1].value == 7)   // last good value carried forward, but marked stale
+        #expect(snaps[2].freshness == .stale(since: t0))
+    }
+
     /// Returns nil once, then 7 forever.
     actor Box {
         private var calls = 0
         func next() -> Int? {
             calls += 1
             return calls == 1 ? nil : 7
+        }
+    }
+
+    /// Returns 7 once, then nil forever (a reader that breaks after a good read).
+    actor FailAfterFirst {
+        private var calls = 0
+        func next() -> Int? {
+            calls += 1
+            return calls == 1 ? 7 : nil
         }
     }
 }

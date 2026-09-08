@@ -52,7 +52,10 @@ private func fdZero(_ set: inout fd_set) {
 
 private func fdSet(_ fd: Int32, _ set: inout fd_set) {
     let offset = Int(fd) / 32
-    let mask = Int32(1 << (Int(fd) % 32))
+    // Build the bit in UInt32 first: `1 << 31` overflows Int32 and traps if we
+    // narrow an Int result — so shift within a fixed-width unsigned type, then
+    // reinterpret the bit pattern. (fd % 32 == 31 for fds 31/63/95/… is common.)
+    let mask = Int32(bitPattern: UInt32(1) << UInt32(fd % 32))
     withUnsafeMutablePointer(to: &set.fds_bits) { p in
         p.withMemoryRebound(to: Int32.self, capacity: 32) { bits in
             bits[offset] |= mask

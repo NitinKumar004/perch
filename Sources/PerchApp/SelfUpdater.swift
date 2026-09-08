@@ -68,16 +68,29 @@ enum SelfUpdater {
 
     /// The shell that performs the swap after this process exits, then relaunches.
     /// Kept as a single string so it's unit-testable without running it. Paths are
-    /// safely single-quoted (any embedded quote is escaped), and if the swap fails
-    /// (e.g. a non-writable install dir) it opens the release page so the user
-    /// isn't left with a missing app and no feedback.
+    /// safely single-quoted (any embedded quote is escaped).
+    ///
+    /// Safe swap order — NEVER delete the installed app before the replacement is
+    /// verified in place. Move the old bundle aside to a backup, copy the new one
+    /// in; only on success drop the backup. If the copy fails, roll the backup
+    /// back so the user is never left with no app (the earlier `rm -rf dest &&
+    /// ditto` could delete the app and then fail the copy, leaving nothing).
     static func swapScript(newApp: String, dest: String, pid: Int32,
                            fallbackURL: String = "https://github.com/NitinKumar004/perch/releases/latest") -> String {
         let d = shellQuote(dest), n = shellQuote(newApp), f = shellQuote(fallbackURL)
         return """
         while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done
-        if rm -rf \(d) && ditto \(n) \(d); then
-          open \(d)
+        BAK=\(d).backup
+        rm -rf "$BAK"
+        if mv \(d) "$BAK"; then
+          if ditto \(n) \(d); then
+            rm -rf "$BAK"
+            open \(d)
+          else
+            rm -rf \(d)
+            mv "$BAK" \(d)
+            open \(f)
+          fi
         else
           open \(f)
         fi

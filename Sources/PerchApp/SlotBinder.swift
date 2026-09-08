@@ -99,8 +99,13 @@ final class SlotBinder {
                                              tint: render.pill.face.tint, url: alert.url))
                     }
                 } else if didAutoOpen {
-                    onBanner(BannerAlert(id: "autoopen-\(AlertEpisode.token())",
-                                         title: Self.autoOpenReason(render),
+                    // Disambiguate by the reason (the specific metric) so two
+                    // different modules auto-opening in the same one-second token
+                    // window don't collide on the id and get the second silently
+                    // dropped by the banner queue's dedup.
+                    let reason = Self.autoOpenReason(render)
+                    onBanner(BannerAlert(id: "autoopen-\(reason)-\(AlertEpisode.token())",
+                                         title: reason,
                                          body: "reached a critical level",
                                          tint: .critical, url: nil))
                 }

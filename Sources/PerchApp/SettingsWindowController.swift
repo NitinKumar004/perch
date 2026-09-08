@@ -24,12 +24,11 @@ final class SettingsWindowController {
         onCheckUpdate: @escaping () -> Void = {},
         onSave: @escaping (LayoutConfig) -> Void
     ) {
-        if let window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
+        // Build a FRESH view from the current config every time. SwiftUI seeds
+        // its @State from the constructor once, so reusing the old view would show
+        // a stale layout — and Saving it could revert a change made in between
+        // (a drag-reorder, an external layout.json edit). Reuse only the window
+        // shell; always swap in a new SettingsView.
         let view = SettingsView(config: config, isConnected: isConnected,
                                 onConnect: onConnect, onUseToken: onUseToken,
                                 onUseCLI: onUseCLI, onDisconnect: onDisconnect,
@@ -37,14 +36,20 @@ final class SettingsWindowController {
             onSave(edited)
             self?.window?.close()
         }
-
         let hosting = NSHostingController(rootView: view)
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "Perch Settings"
-        window.styleMask = [.titled, .closable]
-        window.isReleasedWhenClosed = false
-        window.center()
-        self.window = window
+
+        let window: NSWindow
+        if let existing = self.window {
+            existing.contentViewController = hosting   // refresh with the new config
+            window = existing
+        } else {
+            window = NSWindow(contentViewController: hosting)
+            window.title = "Perch Settings"
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            window.center()
+            self.window = window
+        }
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

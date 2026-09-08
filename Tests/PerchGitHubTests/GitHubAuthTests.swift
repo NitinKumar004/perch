@@ -233,6 +233,18 @@ private func observation(_ fetch: GitHubAPIClient.BuildFetch) -> BuildObservatio
     #expect(obs == nil)
 }
 
+@Test func graphQLDataNullThrowsInsteadOfCrashing() async {
+    // GitHub returns `{"errors":[…],"data":null}` when a field fails to resolve
+    // (timeout, secondary rate limit). JSON null → NSNull, which used to slip the
+    // guards and crash the process with an uncatchable ObjC exception. It must
+    // now throw a catchable `.decoding` instead.
+    let http = FakeHTTPClient([json(#"{"errors":[{"message":"timeout"}],"data":null}"#)])
+    let client = GitHubAPIClient(http: http, auth: connectedAuth())
+    await #expect(throws: GitHubAuthError.self) {
+        _ = try await client.pullRequestList(queue: .reviewRequested, repos: [], limit: 8, now: Date())
+    }
+}
+
 @Test func latestBuild304ReturnsNotModified() async throws {
     let http = FakeHTTPClient([HTTPResponse(status: 304, body: Data())])
     let client = GitHubAPIClient(http: http, auth: connectedAuth())

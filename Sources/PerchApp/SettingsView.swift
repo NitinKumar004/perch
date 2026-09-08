@@ -203,14 +203,20 @@ struct SettingsView: View {
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 16)
-            updateButton
+            VStack(alignment: .trailing, spacing: 4) {
+                updateButton
+                // The running version, so it's always clear what you're on.
+                Text("Version \(PerchVersion.current)")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
         }
         .padding(20)
     }
 
     /// Top-right update control. Reads the shared update state so it reflects the
     /// live flow — "Check for Updates" → "Update to 1.2.1" → "Downloading…" →
-    /// "Up to date" — and installs in place when one is found.
+    /// "Up to date" — and installs in place when one is found. "Up to date" stays
+    /// clickable so the user can re-check on demand.
     private var updateButton: some View {
         let status = updateModel.updateStatus
         return Button(action: onCheckUpdate) {
@@ -225,7 +231,8 @@ struct SettingsView: View {
         .foregroundStyle(status.isHighlighted ? Color.white : Color.primary)
         .controlSize(.large)
         .disabled(!status.isActionable)
-        .help("Check for and install Perch updates")
+        .help(status == .upToDate ? "Up to date — click to check again"
+                                  : "Check for and install Perch updates")
     }
 
     // MARK: - Presets (named layouts)

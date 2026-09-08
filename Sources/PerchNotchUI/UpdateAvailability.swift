@@ -41,11 +41,12 @@ public enum UpdateAvailability: Sendable, Equatable {
     }
 
     /// Whether tapping does something. Transient/terminal states (checking,
-    /// downloading, already up to date) are shown but not tappable.
+    /// downloading) are shown but not tappable. "Up to date" stays tappable so
+    /// the user can re-check whenever they want — it just runs the check again.
     public var isActionable: Bool {
         switch self {
-        case .checking, .downloading, .upToDate: return false
-        case .idle, .available, .releasePage:    return true
+        case .checking, .downloading:                     return false
+        case .idle, .available, .releasePage, .upToDate:  return true
         }
     }
 

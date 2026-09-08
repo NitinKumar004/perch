@@ -66,8 +66,16 @@ public struct CombinedModule: NotchModule {
                         group.addTask {
                             // slot-independent face — merged pill looks the same wherever it sits
                             for await render in member.renderStream(context, slot: .panel) {
-                                let merged = await acc.update(index: i, render: render)
-                                continuation.yield(Snapshot(value: merged, freshness: .live, asOf: clock.now()))
+                                let (merged, allReported) = await acc.update(index: i, render: render)
+                                // Stay `.unknown` until EVERY member has reported at
+                                // least once. Otherwise the first member to arrive
+                                // makes a partial pill look `.live`, consuming the
+                                // "first live = silent baseline" slot — so a second
+                                // member that's already-critical-at-launch would
+                                // wrongly fire an auto-open instead of being adopted
+                                // as baseline.
+                                let freshness: Freshness = allReported ? .live : .unknown
+                                continuation.yield(Snapshot(value: merged, freshness: freshness, asOf: clock.now()))
                             }
                         }
                     }
@@ -107,14 +115,21 @@ public struct CombinedModule: NotchModule {
                             tooltip: "No metrics selected")
         }
         // Each member becomes a segment: text for a normal metric, or a small
-        // BAR for a bar-only member (e.g. thermal pressure) — so a combined pill
-        // like "CPU 27% · RAM 61% · ▓▓░" keeps every member visible.
-        let segments = renders.map { r in
+        // BAR for a bar-only member (e.g. thermal pressure). In a menu-bar pill
+        // the flank is only ~400pt wide, so with many members enabled (up to 9)
+        // the run would overflow and hard-clip. Keep the leading members that fit
+        // a width budget and add a trailing "…" — colour/attention still reflect
+        // ALL members (below), and the panel lists every one, so nothing is lost.
+        let allSegments = renders.map { r in
             FaceSegment(text: r.pill.face.text, tint: r.pill.face.tint, progress: r.pill.face.progress)
         }
-        // The fallback single-colour text uses only the labelled members.
-        let text = renders.compactMap { $0.pill.face.text.isEmpty ? nil : $0.pill.face.text }
-            .joined(separator: " · ")
+        let (shown, truncated) = fitSegments(allSegments)
+        let segments = truncated ? shown + [FaceSegment(text: "…", tint: .neutral)] : shown
+        // The fallback single-colour text uses only the shown, labelled members;
+        // the "· …" suffix matches the separator the segment path draws before
+        // its own "…" segment, so both render the truncation the same way.
+        let text = shown.compactMap { $0.text.isEmpty ? nil : $0.text }
+            .joined(separator: " · ") + (truncated ? " · …" : "")
         let tint = worstTint(renders.map { $0.pill.face.tint })
         // If any member wants attention, surface one dot in the worst member tint.
         let badges = renders.compactMap { $0.pill.face.badge }
@@ -122,6 +137,27 @@ public struct CombinedModule: NotchModule {
         return PillFace(text: text, symbolName: nil, tint: tint,
                         tooltip: renders.map { $0.pill.face.tooltip ?? $0.pill.face.text }.joined(separator: " · "),
                         segments: segments, badge: badge)
+    }
+
+    /// Widest a combined pill may get, in monospace character-units (~6.6pt each).
+    /// ~44 keeps it inside one notch flank (~400pt) with margin.
+    static let pillCharBudget = 44
+
+    /// Keep the leading segments whose combined width fits `pillCharBudget`, and
+    /// report whether any were dropped. Always keeps at least the first member
+    /// (a lone very-wide member is clamped by the view, never blanked). A bar
+    /// member counts ~3 chars; the "·" separator ~2.
+    static func fitSegments(_ segments: [FaceSegment]) -> (shown: [FaceSegment], truncated: Bool) {
+        var used = 0
+        var shown: [FaceSegment] = []
+        for seg in segments {
+            let w = seg.progress != nil ? 3 : seg.text.count
+            let sep = shown.isEmpty ? 0 : 2
+            if !shown.isEmpty, used + sep + w > pillCharBudget { return (shown, true) }
+            used += sep + w
+            shown.append(seg)
+        }
+        return (shown, false)
     }
 
     /// The most alarming tint present, so one red metric turns the whole pill red.
@@ -140,12 +176,15 @@ public struct CombinedModule: NotchModule {
     }
 }
 
-/// Collects the latest render from each member and returns the ordered list.
+/// Collects the latest render from each member and returns the ordered list plus
+/// whether EVERY member has now reported at least once (so the stream can hold
+/// `.unknown` until the combined pill is fully populated).
 private actor Accumulator {
     private var latest: [ModuleRender?]
     init(count: Int) { latest = Array(repeating: nil, count: count) }
-    func update(index: Int, render: ModuleRender) -> [ModuleRender] {
+    func update(index: Int, render: ModuleRender) -> (merged: [ModuleRender], allReported: Bool) {
         if latest.indices.contains(index) { latest[index] = render }
-        return latest.compactMap { $0 }
+        let merged = latest.compactMap { $0 }
+        return (merged, merged.count == latest.count)
     }
 }

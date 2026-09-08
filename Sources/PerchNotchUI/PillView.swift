@@ -53,6 +53,14 @@ public struct PillView: View {
                     .font(.system(size: 9, weight: .regular, design: .monospaced))
                     .foregroundStyle(palette.ink(0.4))   // follows the theme, like the rest
             }
+            if errorMessage != nil {
+                // A distinct, actionable marker for a genuine error (misconfig,
+                // auth) — so it never masquerades as a transient loading "…".
+                // The message is in the tooltip.
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(palette.warning)
+            }
         }
         .fixedSize()   // the whole pill sizes to content, so the flank layout can't
                        // compress it (kept only on the container, not the children)
@@ -72,7 +80,15 @@ public struct PillView: View {
             withAnimation(.easeOut(duration: 0.15)) { isHovering = hovering }
         }
         .opacity(isDimmed ? 0.5 : 1)
-        .help(content.face.tooltip ?? "")
+        // Prefer the freshness error message in the tooltip so a misconfigured or
+        // failing module explains itself on hover instead of a mute dimmed pill.
+        .help(errorMessage ?? content.face.tooltip ?? "")
+    }
+
+    /// The carried error string when the value failed in a way worth surfacing.
+    private var errorMessage: String? {
+        if case let .error(message) = content.freshness { return message }
+        return nil
     }
 
     /// Sizing tuned to sit flush in the menu bar like a native item.

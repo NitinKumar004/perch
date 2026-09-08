@@ -54,6 +54,17 @@ import Foundation
     #expect(ByteFormat.rate(-10) == "0 B/s")   // never negative
 }
 
+@Test func byteFormatRollsUpAtRoundingBoundaries() {
+    // A value a hair under a unit boundary must roll UP to the next unit, not
+    // render the impossible "1024 GB" / "1000 GB" (rounding used to cross the
+    // threshold after the unit was already chosen).
+    #expect(ByteFormat.size(1_048_166) == "1.0 MB")           // 1023.6 KB → 1.0 MB, not "1024 KB"
+    #expect(ByteFormat.size(UInt64(1023.9 * 1_073_741_824)) == "1.0 TB")   // → TB, not "1024 GB"
+    #expect(ByteFormat.storage(999_600) == "1.0 MB")          // 999.6 KB (decimal) → 1.0 MB, not "1000 KB"
+    // Rounding a 1-decimal value up to ≥100 shows it whole, per the doc invariant.
+    #expect(ByteFormat.size(104_806_219) == "100 MB")         // 99.951 MB → "100 MB", not "100.0 MB"
+}
+
 @Test func storageUsesDecimalToMatchFinder() {
     // A "512 GB" SSD is 512e9 bytes → Finder shows ~512 GB (decimal), not 477 GiB.
     #expect(ByteFormat.storage(512_000_000_000) == "512 GB")

@@ -41,11 +41,18 @@ public enum PRTransitions {
                 changes.append(change)
             }
         }
-        // A brand-new PR in your queue (only when the total genuinely grew).
-        if currentCount > previousCount, let newest = current.first {
-            changes.append(PRChange(kind: .newPR, number: newest.number, title: newest.title,
-                                    url: newest.url, phrase: "waiting on your review",
-                                    id: "pr-new-\(newest.number)"))
+        // Brand-new PRs in your queue — only when the total genuinely grew (so a
+        // list reshuffle never invents one). Name the PRs that are ACTUALLY new
+        // (not in the previous set), not just current.first — the search list is
+        // ordered by activity, so the first item is often an already-known PR.
+        // Each carries repo + an episode token so it dedups per occurrence but a
+        // different repo's same-numbered PR (or a re-entry) can't be swallowed.
+        if currentCount > previousCount {
+            for pr in current where byKey[key(pr)] == nil {
+                changes.append(PRChange(kind: .newPR, number: pr.number, title: pr.title,
+                                        url: pr.url, phrase: "waiting on your review",
+                                        id: "pr-\(key(pr))-new-\(AlertEpisode.token())"))
+            }
         }
         return changes
     }

@@ -143,6 +143,17 @@ public struct Preset: Codable, Equatable, Sendable {
         self.panel = panel
     }
 
+    /// Lenient decode: a hand-written preset that omits `panel` (it "defaults to
+    /// empty") must load, not throw — otherwise one such omission fails the WHOLE
+    /// LayoutConfig decode and `ConfigStore` wipes every preset to defaults. Same
+    /// tolerance `LayoutConfig`/`GlobalSettings` already give their fields.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        leftPill = try c.decodeIfPresent(SlotBinding.self, forKey: .leftPill)
+        rightPill = try c.decodeIfPresent(SlotBinding.self, forKey: .rightPill)
+        panel = try c.decodeIfPresent([SlotBinding].self, forKey: .panel) ?? []
+    }
+
     /// Return a tidied copy of the layout:
     /// - the **panel** drops only *identical* rows — same module AND same settings.
     ///   The same module type with different settings is a distinct instance and
@@ -173,5 +184,14 @@ public struct SlotBinding: Codable, Equatable, Hashable, Sendable {
     public init(module: String, settings: [String: String] = [:]) {
         self.module = module
         self.settings = settings
+    }
+
+    /// Lenient decode: a hand-written binding that omits `settings` (it "defaults
+    /// to empty") must load, not throw — a missing key here otherwise fails the
+    /// whole config decode and resets every preset. `module` stays required.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        module = try c.decode(String.self, forKey: .module)
+        settings = try c.decodeIfPresent([String: String].self, forKey: .settings) ?? [:]
     }
 }

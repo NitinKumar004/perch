@@ -74,8 +74,15 @@ public struct GitHubAPIClient: Sendable {
         guard let root = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any] else {
             throw GitHubAuthError.decoding
         }
-        if root["errors"] != nil, root["data"] == nil { throw GitHubAuthError.decoding }
-        guard let data = root["data"] else { throw GitHubAuthError.decoding }
+        // GraphQL errors arrive as `{"errors":[…],"data":null}`. JSON null
+        // deserializes to `NSNull`, NOT Swift nil — so `root["data"] == nil` is
+        // false and the old guards fell through to `JSONSerialization.data(
+        // withJSONObject: NSNull())`, which raises an UNCATCHABLE ObjC exception
+        // and aborts the process. Reject any non-dictionary `data` (null/scalar)
+        // as a decode error instead.
+        guard let data = root["data"], JSONSerialization.isValidJSONObject(data) else {
+            throw GitHubAuthError.decoding
+        }
         return try JSONSerialization.data(withJSONObject: data)
     }
 

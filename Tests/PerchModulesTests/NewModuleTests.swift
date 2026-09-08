@@ -112,6 +112,24 @@ import PerchModuleKit
     #expect(allBars.text == "")                      // no text to show
     #expect(allBars.segments?.count == 1)            // …but a bar segment remains
     #expect(allBars.segments?.first?.progress == 0.25)
+
+    // Many members overflow the flank → keep the leading ones that fit + a "…",
+    // so the pill can't run off the bar. Colour/worst-of still reflect ALL.
+    let many = CombinedModule.mergedFace([
+        render("CPU 24%", .good), render("RAM 69%", .good), render("↓ 1.5 KB/s", .good),
+        render("Swap 9.7 GB", .critical), render("Load 4.1", .good),
+        render("Disk 38.6 GB", .good), render("Net 12 MB/s", .good),
+    ])
+    #expect((many.segments?.count ?? 0) < 8)          // dropped some
+    #expect(many.segments?.last?.text == "…")         // …marked with an ellipsis
+    #expect(many.text.hasSuffix("…"))
+    #expect(many.tint == .critical)                    // worst-of over ALL members, even hidden ones
+    // Whatever shows fits the budget.
+    let shown = (many.segments ?? []).dropLast()       // exclude the "…"
+    let width = shown.reduce(0) { $0 + ($1.progress != nil ? 3 : $1.text.count) } + max(0, shown.count - 1) * 2
+    #expect(width <= CombinedModule.pillCharBudget)
+    // A single over-wide member is kept, not blanked.
+    #expect(CombinedModule.fitSegments([FaceSegment(text: String(repeating: "X", count: 80), tint: .good)]).shown.count == 1)
 }
 
 // MARK: - System safety modules (thermal / swap / load / disk)

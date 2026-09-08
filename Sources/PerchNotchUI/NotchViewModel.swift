@@ -22,8 +22,9 @@ public final class NotchViewModel {
     public var isPanelOpen = false
     /// Whether GitHub is connected — drives the panel's "Connect" button.
     public var isConnected = false
-    /// The self-update state — drives the panel footer's update button, so the
-    /// update flow is reachable even when the menu-bar bird is hidden.
+    /// The self-update state — drives the Settings window's update button (label,
+    /// tappability, emphasis), so the whole check → download → install flow is
+    /// reachable from there without hunting for the menu-bar bird.
     public var updateStatus: UpdateAvailability = .idle
     /// The active colour palette (from the user's chosen theme). Injected into
     /// the view tree so every pill and the panel re-skin when it changes.

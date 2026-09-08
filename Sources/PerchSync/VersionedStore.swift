@@ -57,4 +57,12 @@ public actor VersionedStore<Key: Hashable & Sendable, Value: Sendable> {
     public func version(forKey key: Key) -> Date? {
         entries[key]?.version
     }
+
+    /// Forget the stored value for `key` entirely — so a later `snapshot` returns
+    /// nil rather than resurrecting it as `.stale`. Use when the source now says
+    /// the value no longer exists (e.g. a build's run aged out), which is a
+    /// distinct thing from a value that's merely overdue for a refresh.
+    public func remove(forKey key: Key) {
+        entries[key] = nil
+    }
 }

@@ -9,6 +9,10 @@ import PerchGitHub
 public struct BuildInfo: Sendable, Equatable {
     public var state: BuildState
     public var workflowName: String
+    /// The run number ("#1636") so the panel names the exact run, not just "CI".
+    public var runNumber: Int
+    /// The run's display title (e.g. "v2.11.0") — the human "what build ran".
+    public var displayTitle: String
     public var branch: String
     public var shortSHA: String
     public var durationText: String
@@ -22,15 +26,25 @@ public struct BuildInfo: Sendable, Equatable {
 
     public init(state: BuildState, workflowName: String, branch: String,
                 shortSHA: String, durationText: String, url: String,
+                runNumber: Int = 0, displayTitle: String = "",
                 elapsedSeconds: Int = 0, predictedSeconds: Int? = nil) {
         self.state = state
         self.workflowName = workflowName
+        self.runNumber = runNumber
+        self.displayTitle = displayTitle
         self.branch = branch
         self.shortSHA = shortSHA
         self.durationText = durationText
         self.url = url
         self.elapsedSeconds = elapsedSeconds
         self.predictedSeconds = predictedSeconds
+    }
+
+    /// "CI #1636" — the exact run identity. Falls back to just the workflow name
+    /// (or "Latest run") when the number is unknown.
+    public var runLabel: String {
+        let name = workflowName.isEmpty ? "Latest run" : workflowName
+        return runNumber > 0 ? "\(name) #\(runNumber)" : name
     }
 
     public static let unknown = BuildInfo(
@@ -56,23 +70,27 @@ public struct GitHubBuildsModule: NotchModule {
     private let owner: String
     private let repo: String
     private let branch: String
+    /// Pin to one workflow by name (e.g. "CI") so the pill doesn't flip between a
+    /// repo's several workflows; blank = the latest run of any workflow.
+    private let workflow: String
     /// Where completed-run durations are learned from, so a running build shows a
     /// real "≈4m left" instead of a static spinner. Shared across build modules.
     private let history: RunHistoryStore
 
     public init(client: GitHubAPIClient, owner: String, repo: String, branch: String = "main",
-                history: RunHistoryStore = RunHistoryStore()) {
+                workflow: String = "", history: RunHistoryStore = RunHistoryStore()) {
         self.client = client
         self.owner = owner
         self.repo = repo
         self.branch = branch
+        self.workflow = workflow
         self.history = history
     }
 
     public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<BuildInfo>> {
         let clock = context.clock
         let client = client
-        let (owner, repo, branch) = (owner, repo, branch)
+        let (owner, repo, branch, workflow) = (owner, repo, branch, workflow)
         let history = history
         let idleInterval = context.refreshSeconds(fallback: 60, minimum: 15)
         // Build-activity controls — every one user-tunable, sensible defaults:
@@ -99,12 +117,19 @@ public struct GitHubBuildsModule: NotchModule {
                     let throttle = await client.rateLimit.throttleDelay()
                     if throttle > 0 { try? await Task.sleep(for: .seconds(min(throttle, 60))) }
                     do {
-                        let fetch = try await client.latestBuild(owner: owner, repo: repo, branch: branch, etag: etag)
+                        let fetch = try await client.latestBuild(owner: owner, repo: repo, branch: branch, workflow: workflow, etag: etag)
                         failures = 0
                         switch fetch {
                         case .notModified:
                             // Unchanged since last poll — free 304, nothing to do.
                             nextDelay = (lastState == .running) ? 15 : idleInterval
+                        case .pinnedAbsent(let newEtag):
+                            // Pinned workflow wasn't in the fetched window (other
+                            // workflows ran more recently). KEEP the last-known build
+                            // — don't wipe to "unknown" the way a genuine no-runs does.
+                            etag = newEtag
+                            if lastLog != "pinned-absent" { print("[perch] build poll \(key): pinned workflow not in window"); lastLog = "pinned-absent" }
+                            nextDelay = idleInterval
                         case .ok(let observation?, let newEtag):
                             etag = newEtag
                             let mapped = Self.map(observation.state)
@@ -135,6 +160,8 @@ public struct GitHubBuildsModule: NotchModule {
                                 shortSHA: observation.shortSHA,
                                 durationText: Self.formatDuration(observation.durationSeconds),
                                 url: observation.url,
+                                runNumber: observation.runNumber,
+                                displayTitle: observation.displayTitle,
                                 // Only carry elapsed when activity is ON — so the
                                 // face/detail special-casing (keyed on elapsed > 0)
                                 // fully reverts to the pre-feature text when the user
@@ -202,16 +229,21 @@ public struct GitHubBuildsModule: NotchModule {
     }
 
     public func contextLabel(_ context: ModuleContext) -> String? {
-        "\(owner)/\(repo) · \(branch)"
+        let branchLabel = (branch.isEmpty || branch == "*") ? "any branch" : branch
+        let pinned = workflow.trimmingCharacters(in: .whitespaces)
+        let scope = pinned.isEmpty ? branchLabel : "\(pinned) · \(branchLabel)"
+        return "\(owner)/\(repo) · \(scope)"
     }
 
     public func detail(for value: BuildInfo) -> [DetailRow] {
         guard value.state != .unknown, !value.url.isEmpty else { return [] }
-        // While running, lead the subtitle with the live countdown ("≈4m left"),
-        // then the usual branch · commit; a finished run keeps its total duration.
-        var bits = [value.branch, value.shortSHA, value.durationText]
+        // Subtitle leads with the run's display title (the "what build ran", e.g.
+        // "v2.11.0"), then branch · commit · duration. While running, the live
+        // countdown ("≈4m left") replaces the duration.
+        var bits = [value.displayTitle, value.branch, value.shortSHA, value.durationText]
         if value.state == .running, value.elapsedSeconds > 0 {
-            bits = [RunHistory.etaText(elapsedSeconds: value.elapsedSeconds,
+            bits = [value.displayTitle,
+                    RunHistory.etaText(elapsedSeconds: value.elapsedSeconds,
                                        predictedSeconds: value.predictedSeconds),
                     value.branch, value.shortSHA]
         }
@@ -223,7 +255,7 @@ public struct GitHubBuildsModule: NotchModule {
         let repoKey = value.url.components(separatedBy: "/actions").first ?? value.url
         return [DetailRow(
             id: "build-\(repoKey)",
-            title: value.workflowName.isEmpty ? "Latest run" : value.workflowName,
+            title: value.runLabel,   // "CI #1636" — the exact run
             subtitle: bits.joined(separator: " · "),
             tint: buildFace(for: value.state, in: .panel).tint,
             symbolName: buildFace(for: value.state, in: .panel).symbolName,

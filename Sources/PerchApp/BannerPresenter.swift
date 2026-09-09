@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import PerchNotchUI
 
@@ -10,24 +11,29 @@ import PerchNotchUI
 final class BannerPresenter {
     private let model: NotchViewModel
     private let baseDwell: Double
-    private let perCharacter: Double
     private let maxDwell: Double
     private var queue = BannerQueue()
     private var dismissTask: Task<Void, Never>?
 
-    init(model: NotchViewModel, baseDwell: Double = 4.5, perCharacter: Double = 0.09, maxDwell: Double = 11) {
+    init(model: NotchViewModel, baseDwell: Double = 3.5, maxDwell: Double = 20) {
         self.model = model
         self.baseDwell = baseDwell
-        self.perCharacter = perCharacter
         self.maxDwell = maxDwell
     }
 
     /// How long a banner stays. A long message marquees inside a fixed-width slot,
-    /// so a flat dwell showed only the start before vanishing ("half shown and
-    /// gone"). Scale the dwell with the message length — capped — so the scroll
-    /// has time to reveal the whole thing, while a short banner stays brief.
-    nonisolated static func dwell(textLength: Int, base: Double, perCharacter: Double, max: Double) -> Double {
-        Swift.min(max, base + Double(Swift.max(0, textLength)) * perCharacter)
+    /// so the dwell is DERIVED from the marquee's own cycle (hold + scroll + end
+    /// pause, from `MarqueeTiming`) plus a small tail — guaranteeing the whole
+    /// message reveals once before it dismisses, instead of a flat cap racing the
+    /// scroll. A short message that fits (no scroll) just uses the base dwell.
+    /// `max` bounds a pathological run-on so it can't linger forever. Under Reduce
+    /// Motion the banner never scrolls (the text truncates), so there's nothing to
+    /// wait for — it uses the base dwell instead of a long scroll-assuming one.
+    nonisolated static func dwell(textLength: Int, base: Double, max: Double, reduceMotion: Bool = false) -> Double {
+        guard !reduceMotion else { return base }
+        let reveal = MarqueeTiming.bannerRevealSeconds(textLength: textLength)
+        let needed = reveal > 0 ? reveal + 1.0 : base
+        return Swift.min(max, Swift.max(base, needed))
     }
 
     /// The text the banner actually renders (title, plus body when present) —
@@ -52,7 +58,8 @@ final class BannerPresenter {
         model.banner = banner
         dismissTask?.cancel()
         let dwell = Self.dwell(textLength: Self.displayText(banner).count,
-                               base: baseDwell, perCharacter: perCharacter, max: maxDwell)
+                               base: baseDwell, max: maxDwell,
+                               reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         dismissTask = Task { [weak self] in
             guard let self else { return }
             try? await Task.sleep(for: .seconds(dwell))

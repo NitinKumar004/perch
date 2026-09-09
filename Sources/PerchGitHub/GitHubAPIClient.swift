@@ -18,6 +18,13 @@ public struct BuildObservation: Sendable, Equatable {
     public let updatedAt: Date
     public let url: String
     public let workflowName: String
+    /// GitHub's per-workflow run number (the "#1636"), so the panel names the
+    /// EXACT run — not just "CI", which is ambiguous when a repo runs several
+    /// workflows on one commit.
+    public let runNumber: Int
+    /// The run's display title (usually the PR/commit title, e.g. "v2.11.0") — the
+    /// human "what build ran".
+    public let displayTitle: String
     public let branch: String
     public let shortSHA: String
     public let durationSeconds: Int
@@ -91,24 +98,38 @@ public struct GitHubAPIClient: Sendable {
     public enum BuildFetch: Sendable {
         case notModified
         case ok(BuildObservation?, etag: String?)
+        /// Pinned to a workflow, but its run wasn't in the fetched window (other
+        /// workflows ran more recently). Distinct from `.ok(nil)` — the caller must
+        /// KEEP the last-known build, not wipe it to "no runs".
+        case pinnedAbsent(etag: String?)
     }
 
     /// The latest Actions run for `branch`, sent conditionally with `etag`.
     /// A 304 (unchanged) is returned as `.notModified` and — when authenticated —
     /// does not count against the REST rate limit.
-    public func latestBuild(owner: String, repo: String, branch: String, etag: String?) async throws -> BuildFetch {
+    public func latestBuild(owner: String, repo: String, branch: String,
+                            workflow: String = "", etag: String?) async throws -> BuildFetch {
         let token = try await auth.validAccessToken()
 
+        // A blank branch (or "*") means "any branch": omit the filter so GitHub
+        // returns the latest run across every branch — handy for a PR opened from
+        // any branch. When pinned to a workflow we fetch a small page and pick that
+        // workflow's latest run client-side (the runs endpoint can't filter by
+        // workflow name), otherwise one run is enough.
+        let anyBranch = branch.isEmpty || branch == "*"
+        let wanted = workflow.trimmingCharacters(in: .whitespaces)
+        let pinned = !wanted.isEmpty
         // Build the URL via URLComponents so the query string is a real query,
-        // not percent-encoded into the path (which drops the branch filter).
+        // not percent-encoded into the path (which drops the branch filter). When
+        // pinned we fetch a wide page (50) and pick that workflow's latest run
+        // client-side, since the runs endpoint can't filter by workflow name.
         var components = URLComponents(
             url: GitHubConfig.apiBaseURL.appendingPathComponent("repos/\(owner)/\(repo)/actions/runs"),
             resolvingAgainstBaseURL: false
         )
-        components?.queryItems = [
-            URLQueryItem(name: "branch", value: branch),
-            URLQueryItem(name: "per_page", value: "1"),
-        ]
+        var query = [URLQueryItem(name: "per_page", value: pinned ? "50" : "1")]
+        if !anyBranch { query.append(URLQueryItem(name: "branch", value: branch)) }
+        components?.queryItems = query
         guard let url = components?.url else { throw GitHubAuthError.decoding }
 
         var headers = [
@@ -129,18 +150,37 @@ public struct GitHubAPIClient: Sendable {
         guard let decoded = try? Self.decoder.decode(RunsResponse.self, from: response.body) else {
             throw GitHubAuthError.decoding
         }
+        // Pinned to a workflow → the latest run whose name matches (trimmed,
+        // case-insensitive so a copy-pasted "ci " still matches "CI"); else the
+        // newest run of any workflow.
+        if pinned {
+            guard let run = decoded.workflowRuns.first(where: {
+                $0.name?.caseInsensitiveCompare(wanted) == .orderedSame
+            }) else {
+                // Not in the window — keep the last-known build rather than wiping.
+                return .pinnedAbsent(etag: newEtag)
+            }
+            return .ok(Self.buildObservation(run, fallbackBranch: branch), etag: newEtag)
+        }
         guard let run = decoded.workflowRuns.first else { return .ok(nil, etag: newEtag) }
+        return .ok(Self.buildObservation(run, fallbackBranch: branch), etag: newEtag)
+    }
+
+    /// Map one Actions run to a `BuildObservation` — the one place the run→panel
+    /// shape lives, shared by the pinned and newest-run paths.
+    private static func buildObservation(_ run: Run, fallbackBranch: String) -> BuildObservation {
         let duration = max(0, Int(run.updatedAt.timeIntervalSince(run.runStartedAt ?? run.updatedAt)))
-        let observation = BuildObservation(
+        return BuildObservation(
             state: run.runState,
             updatedAt: run.updatedAt,
             url: run.htmlUrl,
             workflowName: run.name ?? "workflow",
-            branch: run.headBranch ?? branch,
+            runNumber: run.runNumber ?? 0,
+            displayTitle: run.displayTitle ?? "",
+            branch: run.headBranch ?? fallbackBranch,
             shortSHA: String((run.headSha ?? "").prefix(7)),
             durationSeconds: duration
         )
-        return .ok(observation, etag: newEtag)
     }
 
     // MARK: - Notifications
@@ -274,6 +314,8 @@ private struct Run: Decodable {
     let updatedAt: Date
     let htmlUrl: String
     let name: String?
+    let runNumber: Int?
+    let displayTitle: String?
     let headBranch: String?
     let headSha: String?
     let runStartedAt: Date?

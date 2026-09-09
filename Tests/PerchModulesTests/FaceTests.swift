@@ -33,6 +33,35 @@ private func series(_ v: Int) -> VitalSeries { VitalSeries(current: v, history: 
     #expect(noCI.subtitle?.contains("CI") == false)
 }
 
+@Test func buildDetailNamesTheExactRunAndDisplayTitle() {
+    let m = GitHubBuildsModule(client: .init(auth: .init(
+        flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore())), owner: "o", repo: "r")
+    let info = BuildInfo(state: .passing, workflowName: "CI", branch: "development",
+                         shortSHA: "211c092", durationText: "5m47s",
+                         url: "https://github.com/o/r/actions/runs/1",
+                         runNumber: 1636, displayTitle: "v2.11.0")
+    #expect(info.runLabel == "CI #1636")
+    let row = m.detail(for: info)[0]
+    #expect(row.title == "CI #1636")                          // exact run, not just "CI"
+    #expect(row.subtitle?.contains("v2.11.0") == true)         // the build/version name
+    #expect(row.subtitle?.contains("development") == true)
+    // Unknown run number falls back to the workflow name alone.
+    #expect(BuildInfo(state: .passing, workflowName: "CI", branch: "b",
+                      shortSHA: "abc", durationText: "1m", url: "u").runLabel == "CI")
+}
+
+@Test func buildContextLabelShowsAnyBranchAndPinnedWorkflow() {
+    func client() -> GitHubAPIClient {
+        .init(auth: .init(flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore()))
+    }
+    let any = GitHubBuildsModule(client: client(), owner: "o", repo: "r", branch: "*", workflow: "CI")
+    let label = any.contextLabel(ModuleContext()) ?? ""
+    #expect(label.contains("any branch"))
+    #expect(label.contains("CI"))
+    let fixed = GitHubBuildsModule(client: client(), owner: "o", repo: "r", branch: "development")
+    #expect(fixed.contextLabel(ModuleContext())?.contains("development") == true)
+}
+
 @Test func prMergeReviewingDedupesAndOrdersNewestFirst() {
     func pr(_ n: Int, _ repo: String = "o/r") -> PRSummary {
         PRSummary(number: n, title: "t\(n)", repo: repo, url: "u\(n)")

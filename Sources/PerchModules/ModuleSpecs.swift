@@ -76,7 +76,8 @@ public enum ModuleSpecs {
         spec(GitHubBuildsModule.self, category: .github, tag: "one repo's CI",
              settings: [
                 ModuleSetting(key: "repo", label: "Repository", placeholder: "owner/name"),
-                ModuleSetting(key: "branch", label: "Branch", placeholder: "main", defaultValue: "main"),
+                ModuleSetting(key: "branch", label: "Branch", placeholder: "main — or * for any branch", defaultValue: "main"),
+                ModuleSetting(key: "workflow", label: "Only this workflow (optional)", placeholder: "e.g. CI — blank = latest of any"),
                 refreshSetting("60"),
                 // Build-activity controls (a running build shows a progress + ETA):
                 ModuleSetting(key: "activity", label: "Live progress while running",
@@ -92,10 +93,11 @@ public enum ModuleSpecs {
              ]) { binding, deps in
             let repo = binding.settings["repo"] ?? "NitinKumar004/perch"
             let branch = binding.settings["branch"] ?? "main"
+            let workflow = binding.settings["workflow"] ?? ""
             let parts = repo.split(separator: "/", maxSplits: 1).map(String.init)
             guard parts.count == 2 else { return nil }
             return AnyNotchModule(GitHubBuildsModule(client: deps.apiClient, owner: parts[0], repo: parts[1],
-                                                     branch: branch, history: deps.runHistory))
+                                                     branch: branch, workflow: workflow, history: deps.runHistory))
         },
 
         spec(GitHubPRsModule.self, category: .github, tag: "review queue",

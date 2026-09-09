@@ -13,8 +13,9 @@ struct BannerView: View {
     @Environment(\.theme) private var theme
 
     /// The scrolling text area width — the element stays this size in the bar
-    /// regardless of message length; longer text marquees inside it.
-    private let textWidth: CGFloat = 230
+    /// regardless of message length; longer text marquees inside it. One source of
+    /// truth (shared with the dwell math) so the two can't drift.
+    private let textWidth = CGFloat(MarqueeTiming.bannerSlotWidth)
 
     init(_ banner: BannerAlert, onTap: @escaping () -> Void) {
         self.banner = banner

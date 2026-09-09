@@ -113,7 +113,10 @@ public struct NotchRootView: View {
     private func bannerRow(_ banner: BannerAlert) -> some View {
         let capsule = BannerView(banner) { onActivate() }
             .reportsInteractive()
-            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            // Fade in IN PLACE (no scale/grow) so the message appears exactly where
+            // the pill was — left-aligned and readable from the first frame, no
+            // "empty then slides in" moment.
+            .transition(.opacity)
         if model.hudPosition == .flank {
             let bannerOnRight = BannerPlacement.showOnRight(left: model.leftPill, right: model.rightPill)
             HStack(spacing: 0) {

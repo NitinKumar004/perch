@@ -169,3 +169,20 @@ import PerchCore
         #expect(ThemeCode.decode("hello world") == nil)
     }
 }
+
+@Suite struct MarqueeTimingTests {
+    @Test func noOverflowMeansNoScrollTime() {
+        #expect(MarqueeTiming.revealSeconds(overflow: 0) == 0)
+        #expect(MarqueeTiming.revealSeconds(overflow: -50) == 0)
+        // A short banner message fits the slot → no reveal time.
+        #expect(MarqueeTiming.bannerRevealSeconds(textLength: 10) == 0)
+    }
+
+    @Test func overflowTakesHoldPlusScrollPlusEndPause() {
+        let overflow = 400.0
+        let expected = MarqueeTiming.startHold + overflow / MarqueeTiming.pointsPerSecond + MarqueeTiming.endPause
+        #expect(MarqueeTiming.revealSeconds(overflow: overflow) == expected)
+        // Longer messages take strictly longer to reveal.
+        #expect(MarqueeTiming.bannerRevealSeconds(textLength: 120) > MarqueeTiming.bannerRevealSeconds(textLength: 60))
+    }
+}

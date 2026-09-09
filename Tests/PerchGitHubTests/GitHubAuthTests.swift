@@ -233,6 +233,71 @@ private func observation(_ fetch: GitHubAPIClient.BuildFetch) -> BuildObservatio
     #expect(obs == nil)
 }
 
+@Test func latestBuildDecodesRunNumberAndDisplayTitle() async throws {
+    let body = #"{"total_count":1,"workflow_runs":[{"id":1,"status":"completed","conclusion":"success","updated_at":"2026-09-05T09:00:00Z","html_url":"https://x/1","name":"CI","run_number":1636,"display_title":"v2.11.0","head_branch":"development","head_sha":"211c0921234"}]}"#
+    let http = FakeHTTPClient([json(body)])
+    let obs = observation(try await GitHubAPIClient(http: http, auth: connectedAuth())
+        .latestBuild(owner: "o", repo: "r", branch: "development", etag: nil))
+    #expect(obs?.workflowName == "CI")
+    #expect(obs?.runNumber == 1636)
+    #expect(obs?.displayTitle == "v2.11.0")
+}
+
+@Test func latestBuildAnyBranchOmitsTheBranchFilter() async throws {
+    // Blank branch → no `branch=` query → GitHub returns the latest run anywhere.
+    let http = FakeHTTPClient([json(runsJSON(status: "completed", conclusion: "success"))])
+    _ = try await GitHubAPIClient(http: http, auth: connectedAuth())
+        .latestBuild(owner: "o", repo: "r", branch: "", etag: nil)
+    let anyURL = await http.requests.last?.url.absoluteString ?? ""
+    #expect(!anyURL.contains("branch="))
+
+    // A real branch DOES add the filter.
+    let http2 = FakeHTTPClient([json(runsJSON(status: "completed", conclusion: "success"))])
+    _ = try await GitHubAPIClient(http: http2, auth: connectedAuth())
+        .latestBuild(owner: "o", repo: "r", branch: "main", etag: nil)
+    let mainURL = await http2.requests.last?.url.absoluteString ?? ""
+    #expect(mainURL.contains("branch=main"))
+}
+
+@Test func latestBuildPinsToTheNamedWorkflow() async throws {
+    // Two workflows on one commit — newest is Security; pinning "CI" must pick CI.
+    let body = #"{"total_count":2,"workflow_runs":[{"id":2,"status":"completed","conclusion":"failure","updated_at":"2026-09-05T10:00:00Z","html_url":"https://x/2","name":"Security","run_number":1634},{"id":1,"status":"completed","conclusion":"success","updated_at":"2026-09-05T09:00:00Z","html_url":"https://x/1","name":"CI","run_number":1636}]}"#
+    let http = FakeHTTPClient([json(body)])
+    let obs = observation(try await GitHubAPIClient(http: http, auth: connectedAuth())
+        .latestBuild(owner: "o", repo: "r", branch: "main", workflow: "CI", etag: nil))
+    #expect(obs?.workflowName == "CI")
+    #expect(obs?.runNumber == 1636)
+    #expect(obs?.state == .passing)   // CI's run, not Security's failure
+    let pinnedURL = await http.requests.last?.url.absoluteString ?? ""
+    #expect(pinnedURL.contains("per_page=50"))
+}
+
+@Test func latestBuildPinnedAbsentWhenWorkflowNotInWindow() async throws {
+    // The page has runs, but none is the pinned "Deploy" workflow → must return
+    // .pinnedAbsent (keep last-known), NOT .ok(nil) (which would wipe to "no runs").
+    let body = #"{"total_count":1,"workflow_runs":[{"id":1,"status":"completed","conclusion":"success","updated_at":"2026-09-05T09:00:00Z","html_url":"https://x/1","name":"CI","run_number":1636}]}"#
+    let http = FakeHTTPClient([json(body)])
+    let fetch = try await GitHubAPIClient(http: http, auth: connectedAuth())
+        .latestBuild(owner: "o", repo: "r", branch: "main", workflow: "Deploy", etag: nil)
+    if case .pinnedAbsent = fetch {} else { Issue.record("expected .pinnedAbsent, got \(fetch)") }
+}
+
+@Test func latestBuildStarBranchOmitsTheBranchFilter() async throws {
+    let http = FakeHTTPClient([json(runsJSON(status: "completed", conclusion: "success"))])
+    _ = try await GitHubAPIClient(http: http, auth: connectedAuth())
+        .latestBuild(owner: "o", repo: "r", branch: "*", etag: nil)
+    let url = await http.requests.last?.url.absoluteString ?? ""
+    #expect(!url.contains("branch="))
+}
+
+@Test func latestBuildWorkflowMatchIsTrimmedAndCaseInsensitive() async throws {
+    let body = #"{"total_count":1,"workflow_runs":[{"id":1,"status":"completed","conclusion":"success","updated_at":"2026-09-05T09:00:00Z","html_url":"https://x/1","name":"CI","run_number":1636}]}"#
+    let http = FakeHTTPClient([json(body)])
+    let obs = observation(try await GitHubAPIClient(http: http, auth: connectedAuth())
+        .latestBuild(owner: "o", repo: "r", branch: "main", workflow: "  ci ", etag: nil))
+    #expect(obs?.workflowName == "CI")   // " ci " still matches "CI"
+}
+
 @Test func graphQLDataNullThrowsInsteadOfCrashing() async {
     // GitHub returns `{"errors":[…],"data":null}` when a field fails to resolve
     // (timeout, secondary rate limit). JSON null → NSNull, which used to slip the

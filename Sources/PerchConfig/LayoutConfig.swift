@@ -84,6 +84,10 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
     /// Whether alerts also show as a transient banner in the notch (in addition
     /// to the macOS notification). Defaults on.
     public var notchBanner: Bool
+    /// When on, clicking anywhere outside the open panel closes it (a common
+    /// dropdown convenience). Off by default — the panel stays open until you
+    /// click the notch again or Quit — so it never closes out from under you.
+    public var closeOnClickOutside: Bool
     /// User-tunable warn/critical levels for the system metrics (CPU, memory,
     /// swap, disk, load). Defaults to sensible standard levels.
     public var thresholds: MetricThresholds
@@ -94,7 +98,7 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
     public init(autoOpenOnRed: Bool = false, quietHours: String? = nil,
                 theme: String = GlobalSettings.defaultThemeID, themeAccent: String? = nil,
                 themeMaterial: String? = nil, themeMode: String? = nil,
-                notchBanner: Bool = true,
+                notchBanner: Bool = true, closeOnClickOutside: Bool = false,
                 thresholds: MetricThresholds = .standard,
                 pacing: AlertPacing = .standard) {
         self.autoOpenOnRed = autoOpenOnRed
@@ -104,6 +108,7 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
         self.themeMaterial = themeMaterial
         self.themeMode = themeMode
         self.notchBanner = notchBanner
+        self.closeOnClickOutside = closeOnClickOutside
         self.thresholds = thresholds
         self.pacing = pacing
     }
@@ -117,6 +122,7 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
         themeMaterial = try c.decodeIfPresent(String.self, forKey: .themeMaterial)
         themeMode = try c.decodeIfPresent(String.self, forKey: .themeMode)
         notchBanner = try c.decodeIfPresent(Bool.self, forKey: .notchBanner) ?? true
+        closeOnClickOutside = try c.decodeIfPresent(Bool.self, forKey: .closeOnClickOutside) ?? false
         thresholds = try c.decodeIfPresent(MetricThresholds.self, forKey: .thresholds) ?? .standard
         pacing = try c.decodeIfPresent(AlertPacing.self, forKey: .pacing) ?? .standard
     }

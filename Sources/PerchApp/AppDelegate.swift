@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowController: NotchWindowController?
     private var binder: SlotBinder?
     private var bannerPresenter: BannerPresenter?
+    private var clickOutsideMonitor: Any?   // global mouse-down monitor for click-outside-to-close
     /// Whether alerts also show as a transient in-notch banner (user setting).
     private var showNotchBanner = true
     /// True while the panel is open *because* it auto-opened on red (not opened
@@ -135,6 +136,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }, panelActions: actions)
         controller.show()
         windowController = controller
+
+        // Optional "click outside to close" (off by default, gated on the live
+        // setting). A GLOBAL monitor only fires for clicks that land OUTSIDE our
+        // own windows — clicking the notch or the panel itself is a local event
+        // and never triggers this — so an outside click is unambiguous.
+        clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.themeGlobal.closeOnClickOutside, self.model.isPanelOpen else { return }
+                self.closePanel()
+            }
+        }
 
         bannerPresenter = BannerPresenter(model: model)
 
@@ -387,6 +399,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Close the panel (used by the optional click-outside-to-close setting).
+    private func closePanel() {
+        guard model.isPanelOpen else { return }
+        cancelAutoClose()
+        panelAutoOpened = false
+        model.isPanelOpen = false
+        windowController?.setPanelOpen(false)
+    }
+
     /// Tint the menu-bar bird to the worst current state — red if anything is
     /// failing, amber if anything is warning — so a failure is visible even in
     /// fullscreen or on a Mac with no notch. Neutral (default) when all is well.
@@ -509,6 +530,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateTimer?.invalidate()
         themeTick?.invalidate()
         wallpaperSampleTask?.cancel()
+        if let clickOutsideMonitor { NSEvent.removeMonitor(clickOutsideMonitor) }
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         binder?.cancelAll()
     }

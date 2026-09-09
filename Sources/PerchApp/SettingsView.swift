@@ -29,6 +29,7 @@ struct SettingsView: View {
     @State private var themeMode: String?        // dynamic mode ("wallpaper"/"daynight"), nil = fixed
     @State private var themeCode: String = ""    // paste-a-theme-code field
     @State private var notchBanner: Bool
+    @State private var closeOnClickOutside: Bool
     @State private var thresholds: MetricThresholds
     @State private var pacing: AlertPacing
     @State private var expanded: Set<String> = []   // collapsible section ids currently open
@@ -87,6 +88,7 @@ struct SettingsView: View {
         _themeMaterial = State(initialValue: config.global.themeMaterial)
         _themeMode = State(initialValue: config.global.themeMode)
         _notchBanner = State(initialValue: config.global.notchBanner)
+        _closeOnClickOutside = State(initialValue: config.global.closeOnClickOutside)
         _thresholds = State(initialValue: config.global.thresholds)
         _pacing = State(initialValue: config.global.pacing)
     }
@@ -528,6 +530,9 @@ struct SettingsView: View {
             Toggle("Show alerts as a banner in the notch",
                    isOn: $notchBanner)
                 .toggleStyle(.checkbox).font(.system(size: 12))
+            Toggle("Close the panel when I click outside it",
+                   isOn: $closeOnClickOutside)
+                .toggleStyle(.checkbox).font(.system(size: 12))
             HStack(spacing: 8) {
                 Text("Quiet hours").font(.system(size: 12)).frame(width: 90, alignment: .leading)
                 TextField("22:00-08:00", text: $quietHours)
@@ -893,7 +898,7 @@ struct SettingsView: View {
                                     quietHours: trimmed.isEmpty ? nil : trimmed,
                                     theme: theme, themeAccent: themeAccent,
                                     themeMaterial: themeMaterial, themeMode: themeMode,
-                                    notchBanner: notchBanner,
+                                    notchBanner: notchBanner, closeOnClickOutside: closeOnClickOutside,
                                     thresholds: thresholds, pacing: pacing)
         onSave(out)
     }

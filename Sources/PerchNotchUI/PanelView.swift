@@ -55,6 +55,13 @@ struct PanelView: View {
     @State private var isDropTargeted = false
     @State private var draggingID: String?      // the section being dragged
     @State private var order: [String] = []     // working display order (live during a drag)
+    @State private var edgeScrollTask: Task<Void, Never>?   // auto-scroll while dragging near an edge
+    @State private var edgeDir: Int = 0                      // -1 up / +1 down / 0 idle (current auto-scroll)
+    // Section/viewport frames live in a plain reference box, mutated in place, so
+    // the per-frame geometry updates during a reorder DON'T invalidate the view
+    // (writing to @State here would re-render the whole panel 60×/sec = the hang).
+    @State private var geom = ReorderGeometry()
+    @State private var scrollProxy: ScrollViewProxy?         // to drive auto-scroll during a drag
     @State private var expanded: Set<String> = []  // sections showing their full list
     @State private var copiedRowID: String?        // row whose link was just copied (brief ✓)
     @Environment(\.palette) private var palette
@@ -64,12 +71,25 @@ struct PanelView: View {
         VStack(spacing: 0) {
             // Rows scroll if they exceed the panel height, so a rich panel (many
             // modules / a long PR list) never gets clipped.
-            ScrollView {
-                VStack(spacing: 0) {
-                    rows
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        rows
+                    }
                 }
+                .frame(maxHeight: 300)
+                // Track the viewport's on-screen frame + keep the proxy, so a drag
+                // near an edge can auto-scroll the list itself.
+                .background(GeometryReader { g in
+                    Color.clear
+                        .onAppear { scrollProxy = proxy; geom.viewport = g.frame(in: .global) }
+                        .onChange(of: g.frame(in: .global)) { _, f in geom.viewport = f }
+                })
+                // Each section reports its on-screen frame; the drag hit-tests the
+                // cursor against these to know which section it's over. Stored in the
+                // plain box so this high-frequency update costs no re-render.
+                .onPreferenceChange(SectionFramesKey.self) { geom.sections = $0 }
             }
-            .frame(maxHeight: 300)
 
             footer
         }
@@ -89,9 +109,7 @@ struct PanelView: View {
             loadDroppedURLs(providers)
             return true
         }
-        // Releasing a section anywhere over the panel commits the live order,
-        // even if the cursor isn't over another row at that instant.
-        .dropDestination(for: String.self) { _, _ in commitReorder(); return true }
+        .coordinateSpace(name: "panel")
         .onAppear { order = items.map(\.id) }
         .onChange(of: items.map(\.id)) { _, ids in
             // Adopt an external order change (config reload) when not mid-drag.
@@ -127,14 +145,69 @@ struct PanelView: View {
         let current = order.isEmpty ? items.map(\.id) : order
         let next = PanelReorder.reordered(current, moving: moving, target: targetID)
         guard next != current else { return }
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { order = next }
+        // A snappy interactive spring so the other sections glide open a gap without
+        // overshoot or lingering — the "auto-adjust" the reorder is meant to feel.
+        withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.86)) { order = next }
     }
 
     /// Persist whatever order the live drag settled on.
     private func commitReorder() {
+        setEdgeScroll(0)
         guard draggingID != nil else { return }
         draggingID = nil
         actions.onReorder(order.isEmpty ? items.map(\.id) : order)
+    }
+
+    /// Driven continuously by the header DragGesture (global cursor point): pick the
+    /// section under the cursor and slide the dragged one into its place, and turn
+    /// edge auto-scroll on/off when the cursor nears the viewport's top/bottom.
+    private func handleReorderDrag(_ id: String, at point: CGPoint) {
+        if draggingID != id { draggingID = id }
+
+        // Reorder ONLY when the cursor is squarely inside another section's band —
+        // no "closest" fallback. The fallback reordered on every pixel of movement,
+        // so holding near a boundary flip-flopped the order and stacked springs
+        // (the stutter/hang). Crossing fully into a section is a clean, single move.
+        let others = geom.sections.filter { $0.key != id }
+        if let target = others.first(where: { $0.value.minY <= point.y && point.y <= $0.value.maxY })?.key {
+            liveMove(over: target)
+        }
+
+        // Auto-scroll when the cursor is within `margin` of an edge (works BOTH ways).
+        let vp = geom.viewport
+        let margin: CGFloat = 34
+        if vp.height > 0, point.y < vp.minY + margin { setEdgeScroll(-1) }
+        else if vp.height > 0, point.y > vp.maxY - margin { setEdgeScroll(1) }
+        else { setEdgeScroll(0) }
+    }
+
+    /// End of a header drag: stop scrolling and persist the order.
+    private func endReorderDrag() { commitReorder() }
+
+    /// Start/stop the auto-scroll loop for a direction (-1 up, +1 down, 0 stop).
+    /// Idempotent per direction so continued cursor movement doesn't restart it.
+    private func setEdgeScroll(_ dir: Int) {
+        guard dir != edgeDir else { return }
+        edgeDir = dir
+        edgeScrollTask?.cancel()
+        guard dir != 0, let proxy = scrollProxy else { edgeScrollTask = nil; return }
+        edgeScrollTask = Task { @MainActor in
+            while !Task.isCancelled {
+                // Find the next section just outside the viewport in `dir` and bring
+                // it into view; live frames make this self-correcting each beat.
+                let vp = geom.viewport
+                if dir > 0 {
+                    if let below = orderedItems.first(where: { (geom.sections[$0.id]?.maxY ?? -.infinity) > vp.maxY - 4 }) {
+                        withAnimation(.easeInOut(duration: 0.15)) { proxy.scrollTo(below.id, anchor: .bottom) }
+                    }
+                } else {
+                    if let above = orderedItems.last(where: { (geom.sections[$0.id]?.minY ?? .infinity) < vp.minY + 4 }) {
+                        withAnimation(.easeInOut(duration: 0.15)) { proxy.scrollTo(above.id, anchor: .top) }
+                    }
+                }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+        }
     }
 
     /// Resolve dropped item providers to file URLs off the main actor, then hand
@@ -166,7 +239,8 @@ struct PanelView: View {
 
     /// One module's section (header + its detail rows). Reorderable sections can
     /// be dragged by their header; as a drag passes over other sections they
-    /// slide to open a gap, and the dragged one dims until it's dropped.
+    /// slide to open a gap, and the dragged one is highlighted (not faded) until
+    /// it's dropped.
     @ViewBuilder
     private func section(_ item: PanelItem) -> some View {
         let reorderable = isReorderable(item)
@@ -192,12 +266,15 @@ struct PanelView: View {
             .padding(.top, 9)
             .padding(.bottom, item.detail.isEmpty ? 9 : 4)
             .contentShape(Rectangle())
-            // The header is the drag handle — dragging it never fights the
-            // tappable links/buttons that live in the detail rows below.
-            .ifReorderable(reorderable) { $0.onDrag {
-                draggingID = item.id
-                return NSItemProvider(object: item.id as NSString)
-            } }
+            // The header is the drag handle — a real DragGesture (not SwiftUI
+            // drag-and-drop) so we fully control live reorder + edge auto-scroll,
+            // and it never fights the ScrollView (which scrolls by wheel, not drag)
+            // or the tappable links/buttons in the detail rows below.
+            .ifReorderable(reorderable) { $0.gesture(
+                DragGesture(minimumDistance: 6, coordinateSpace: .global)
+                    .onChanged { v in handleReorderDrag(item.id, at: v.location) }
+                    .onEnded { _ in endReorderDrag() }
+            ) }
 
             // Detail rows. A row that merely restates the header (a single-metric
             // module's own summary) collapses to just its new payload — the
@@ -226,13 +303,28 @@ struct PanelView: View {
                 expandToggle(id: item.id, total: item.detail.count, expanded: isExpanded)
             }
         }
-        .opacity(isDragging ? 0.35 : 1)
-        // Passing a drag over this section slides the dragged one into its place.
-        .ifReorderable(reorderable) { $0.dropDestination(for: String.self) { _, _ in
-            commitReorder(); return true
-        } isTargeted: { targeted in
-            if targeted { liveMove(over: item.id) }
-        } }
+        // The section being moved stays FULLY readable — no wash-out. A soft accent
+        // tint + outline marks it as the one you're dragging, so it reads like its
+        // normal self sitting in a highlighted slot, not a faded ghost.
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(palette.accent.opacity(isDragging ? 0.12 : 0))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(palette.accent.opacity(isDragging ? 0.45 : 0), lineWidth: 1)
+        )
+        // A gentle lift while held — slightly scaled and shadowed, raised above its
+        // neighbours so it reads as "picked up".
+        .scaleEffect(isDragging ? 1.02 : 1, anchor: .center)
+        .shadow(color: .black.opacity(isDragging ? 0.35 : 0), radius: isDragging ? 10 : 0, y: isDragging ? 4 : 0)
+        .zIndex(isDragging ? 1 : 0)
+        .animation(.easeOut(duration: 0.16), value: isDragging)
+        // Report this section's on-screen frame so the drag can hit-test the cursor
+        // against it (which section am I over?) and drive auto-scroll.
+        .background(GeometryReader { g in
+            Color.clear.preference(key: SectionFramesKey.self, value: [item.id: g.frame(in: .global)])
+        })
     }
 
     /// A Combined section's metrics, two per line, each as its own little block:
@@ -519,6 +611,24 @@ private extension View {
     @ViewBuilder func ifReorderable(_ condition: Bool,
                                     _ transform: (Self) -> some View) -> some View {
         if condition { transform(self) } else { self }
+    }
+}
+
+/// A plain reference box for the drag's geometry (section frames + viewport). It's
+/// mutated in place during a drag so the high-frequency updates never invalidate
+/// the SwiftUI view — writing these into @State re-rendered the whole panel every
+/// animation frame, which is what made dragging hang.
+private final class ReorderGeometry {
+    var sections: [String: CGRect] = [:]
+    var viewport: CGRect = .zero
+}
+
+/// Collects each reorderable section's on-screen frame (keyed by id) so a header
+/// drag can hit-test the cursor against them and drive auto-scroll.
+private struct SectionFramesKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
     }
 }
 

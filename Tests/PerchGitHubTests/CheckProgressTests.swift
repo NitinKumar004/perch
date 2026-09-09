@@ -92,3 +92,17 @@ import Foundation
         #expect(pr(100, more: true).unresolvedLabel == "100+")
     }
 }
+
+/// `headByOther` decides whether a "new commit pushed" alert fires — it must bias
+/// to silence whenever authorship can't be positively pinned to someone else.
+@Suite struct HeadByOtherTests {
+    @Test func onlyFiresForAPositivelyDifferentAuthor() {
+        #expect(GQLSearch.headByOther(author: "alice", viewer: "me") == true)   // someone else
+        #expect(GQLSearch.headByOther(author: "me", viewer: "me") == false)     // your own push
+        // Unresolvable author (email not linked to a GitHub account — common on your
+        // own machine) → false, so a self-push can't nag you as if it were someone else.
+        #expect(GQLSearch.headByOther(author: nil, viewer: "me") == false)
+        #expect(GQLSearch.headByOther(author: "alice", viewer: nil) == false)   // no viewer to compare
+        #expect(GQLSearch.headByOther(author: nil, viewer: nil) == false)
+    }
+}

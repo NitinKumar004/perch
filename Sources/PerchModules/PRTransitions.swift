@@ -9,11 +9,12 @@ public struct PRChange: Sendable, Equatable {
     /// module surfaces the single highest-priority change and summarises the rest.
     public enum Kind: Int, Sendable, Comparable {
         case newReviewOrComment = 0   // someone looked at it
-        case newPR              = 1   // a new PR landed in your queue
-        case approved           = 2
-        case changesRequested   = 3
-        case ciFailing          = 4
-        case conflicts          = 5   // your branch no longer merges
+        case newCommit          = 1   // someone else pushed to it
+        case newPR              = 2   // a new PR landed in your queue
+        case approved           = 3
+        case changesRequested   = 4
+        case ciFailing          = 5
+        case conflicts          = 6   // your branch no longer merges
         public static func < (a: Kind, b: Kind) -> Bool { a.rawValue < b.rawValue }
     }
     public let kind: Kind
@@ -83,7 +84,17 @@ public enum PRTransitions {
         if pr.reviewDecision == "APPROVED", old.reviewDecision != "APPROVED" {
             return make(.approved, "approved", "approved")
         }
-        if pr.reviewCount > old.reviewCount || pr.commentCount > old.commentCount {
+        // Someone ELSE pushed a new commit — the one event with no other trace.
+        // Fires ONLY on a positively-attributed other-author push (headByOther), so
+        // your own pushes — and unattributable ones — never nag you.
+        if let oldOid = old.headOid, let newOid = pr.headOid, oldOid != newOid, pr.headByOther {
+            return make(.newCommit, "new commit pushed", "commit")
+        }
+        // New review activity: a formal review, a conversation comment, OR a new
+        // inline code-comment thread (threadCount) — so inline feedback that never
+        // touches the top-level comment count still alerts.
+        if pr.reviewCount > old.reviewCount || pr.commentCount > old.commentCount
+            || pr.threadCount > old.threadCount {
             return make(.newReviewOrComment, "new review activity", "activity")
         }
         return nil

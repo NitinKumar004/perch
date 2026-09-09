@@ -53,6 +53,42 @@ import PerchGitHub
         #expect(detect([pr(1, reviews: 2)], [pr(1, reviews: 2)], 1, 1).isEmpty)
     }
 
+    /// A PR with a specific head commit + whether an OTHER author pushed it + threads.
+    func prc(_ n: Int, oid: String?, byOther: Bool = false, threads: Int = 0) -> PRSummary {
+        PRSummary(number: n, title: "PR \(n)", repo: "o/r", url: "https://x/\(n)",
+                  mergeable: "MERGEABLE", checksState: "SUCCESS",
+                  threadCount: threads, headOid: oid, headByOther: byOther)
+    }
+
+    @Test func someoneElsePushingACommitFires() {
+        let c = detect([prc(1, oid: "aaa")], [prc(1, oid: "bbb", byOther: true)], 1, 1)
+        #expect(c.map(\.kind) == [.newCommit])
+        #expect(c.first?.phrase == "new commit pushed")
+    }
+
+    @Test func yourOwnPushIsSuppressed() {
+        // Head changed but not attributed to someone else → no nag (your own push,
+        // or an unresolvable author — both bias to silence).
+        #expect(detect([prc(1, oid: "aaa")], [prc(1, oid: "bbb", byOther: false)], 1, 1).isEmpty)
+    }
+
+    @Test func inlineThreadActivityFires() {
+        // A new inline review-comment thread (no change to reviews/comments counts).
+        #expect(detect([prc(1, oid: "a", threads: 1)], [prc(1, oid: "a", threads: 2)], 1, 1)
+            .map(\.kind) == [.newReviewOrComment])
+    }
+
+    @Test func aFreshCommitOutranksNewComment() {
+        // Both an other-author push and a comment in one poll → report the push.
+        let prev = PRSummary(number: 1, title: "P", repo: "o/r", url: "u",
+                             mergeable: "MERGEABLE", checksState: "SUCCESS",
+                             commentCount: 0, threadCount: 0, headOid: "a")
+        let cur = PRSummary(number: 1, title: "P", repo: "o/r", url: "u",
+                            mergeable: "MERGEABLE", checksState: "SUCCESS",
+                            commentCount: 1, threadCount: 0, headOid: "b", headByOther: true)
+        #expect(detect([prev], [cur], 1, 1).map(\.kind) == [.newCommit])
+    }
+
     @Test func onePRReportsItsMostImportantChangeOnly() {
         // Conflicts + changes-requested at once → one change, the conflict (higher).
         let c = detect([pr(1)], [pr(1, mergeable: "CONFLICTING", decision: "CHANGES_REQUESTED")], 1, 1)

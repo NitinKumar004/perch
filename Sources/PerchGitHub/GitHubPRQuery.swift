@@ -47,13 +47,31 @@ public struct PRSummary: Sendable, Equatable {
     /// Total conversation comments on the PR — a rising count flags new discussion
     /// even when nobody submitted a formal review.
     public let commentCount: Int
+    /// Total review threads (resolved + unresolved) on the fetched page. A rising
+    /// count means a NEW inline code comment / discussion thread — feedback that a
+    /// top-level `commentCount` doesn't capture, so the "new activity" alert catches
+    /// inline review comments too. Capped at the fetched page (first: 100); beyond
+    /// 100 it plateaus — a silent ceiling only very high-traffic PRs ever hit.
+    public let threadCount: Int
+    /// The head commit's SHA. A change between polls means someone PUSHED a new
+    /// commit — the one PR event that leaves no other trace (no CI break, no
+    /// conflict, no comment), so it's tracked explicitly to alert on a push.
+    public let headOid: String?
+    /// True ONLY when the head commit is positively attributable to someone who is
+    /// NOT the viewer. A "new commit" alert fires solely on this, so it biases to
+    /// SILENCE: an unattributable push (author email not linked to a GitHub
+    /// account — common on your own machine) never nags you as if it were someone
+    /// else's. The signal you want — a teammate pushing to a PR you watch — always
+    /// resolves to a login, so it still fires.
+    public let headByOther: Bool
 
     public init(number: Int, title: String, repo: String, url: String,
                 reviewDecision: String? = nil, mergeable: String? = nil,
                 isDraft: Bool = false, checksState: String? = nil,
                 checksTotal: Int = 0, checksDone: Int = 0,
                 unresolvedThreads: Int = 0, moreThreads: Bool = false,
-                reviewCount: Int = 0, commentCount: Int = 0) {
+                reviewCount: Int = 0, commentCount: Int = 0,
+                threadCount: Int = 0, headOid: String? = nil, headByOther: Bool = false) {
         self.number = number
         self.title = title
         self.repo = repo
@@ -68,6 +86,9 @@ public struct PRSummary: Sendable, Equatable {
         self.moreThreads = moreThreads
         self.reviewCount = reviewCount
         self.commentCount = commentCount
+        self.threadCount = threadCount
+        self.headOid = headOid
+        self.headByOther = headByOther
     }
 
     /// A count that honestly says "N+" when we only saw the first page of threads.
@@ -183,6 +204,7 @@ extension GitHubAPIClient {
 
         let gql = """
         query($q: String!, $n: Int!) {
+          viewer { login }
           search(query: $q, type: ISSUE, first: $n) {
             issueCount
             nodes {
@@ -192,14 +214,18 @@ extension GitHubAPIClient {
                 reviews(first: 0) { totalCount }
                 comments(first: 0) { totalCount }
                 reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage } }
-                commits(last: 1) { nodes { commit { statusCheckRollup {
-                  state
-                  contexts(first: 100) {
-                    totalCount
-                    checkRunCountsByState { state count }
-                    statusContextCountsByState { state count }
+                commits(last: 1) { nodes { commit {
+                  oid
+                  author { user { login } }
+                  statusCheckRollup {
+                    state
+                    contexts(first: 100) {
+                      totalCount
+                      checkRunCountsByState { state count }
+                      statusContextCountsByState { state count }
+                    }
                   }
-                } } } }
+                } } }
               }
             }
           }
@@ -209,9 +235,12 @@ extension GitHubAPIClient {
         guard let decoded = try? JSONDecoder().decode(GQLSearch.self, from: data) else {
             throw GitHubAuthError.decoding
         }
+        let viewerLogin = decoded.viewer?.login
         let items = decoded.search.nodes.compactMap { node -> PRSummary? in
             guard let number = node.number, let title = node.title, let url = node.url else { return nil }
-            let rollup = node.commits?.nodes.first?.commit?.statusCheckRollup
+            let headCommit = node.commits?.nodes.first?.commit
+            let rollup = headCommit?.statusCheckRollup
+            let headByOther = GQLSearch.headByOther(author: headCommit?.author?.user?.login, viewer: viewerLogin)
             let (total, done) = GQLSearch.checkProgress(rollup?.contexts)
             let (unresolved, moreThreads) = GQLSearch.unresolvedThreadCount(node.reviewThreads)
             return PRSummary(number: number, title: title,
@@ -224,7 +253,9 @@ extension GitHubAPIClient {
                              checksTotal: total, checksDone: done,
                              unresolvedThreads: unresolved, moreThreads: moreThreads,
                              reviewCount: node.reviews?.totalCount ?? 0,
-                             commentCount: node.comments?.totalCount ?? 0)
+                             commentCount: node.comments?.totalCount ?? 0,
+                             threadCount: node.reviewThreads?.nodes.count ?? 0,
+                             headOid: headCommit?.oid, headByOther: headByOther)
         }
         return PRListObservation(total: decoded.search.issueCount, items: items, observedAt: now)
     }
@@ -240,6 +271,8 @@ private struct SearchCount: Decodable {
 // testable; it's the one piece with a real classification bug worth guarding.
 struct GQLSearch: Decodable {
     let search: Inner
+    let viewer: Viewer?
+    struct Viewer: Decodable { let login: String? }
     struct Inner: Decodable {
         let issueCount: Int
         let nodes: [Node]
@@ -266,7 +299,12 @@ struct GQLSearch: Decodable {
         }
         struct Commits: Decodable { let nodes: [CommitNode] }
         struct CommitNode: Decodable { let commit: Commit? }
-        struct Commit: Decodable { let statusCheckRollup: Rollup? }
+        struct Commit: Decodable {
+            let oid: String?
+            let author: CommitAuthor?
+            let statusCheckRollup: Rollup?
+        }
+        struct CommitAuthor: Decodable { let user: AuthorUser?; struct AuthorUser: Decodable { let login: String? } }
         struct Rollup: Decodable {
             let state: String?
             let contexts: Contexts?
@@ -277,6 +315,16 @@ struct GQLSearch: Decodable {
             let statusContextCountsByState: [StateCount]?
         }
         struct StateCount: Decodable { let state: String; let count: Int }
+    }
+
+    /// True only when the head commit is positively attributable to someone OTHER
+    /// than the viewer — both logins must be known and differ. An unresolved author
+    /// (nil `user.login`, e.g. an email not linked to a GitHub account) or a missing
+    /// viewer yields `false`, so a "new commit" alert biases to silence rather than
+    /// risk nagging you about your own push.
+    static func headByOther(author: String?, viewer: String?) -> Bool {
+        guard let author, let viewer else { return false }
+        return author != viewer
     }
 
     /// Reduce the rollup's per-state counts to (total, finished) so a running

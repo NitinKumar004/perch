@@ -29,6 +29,10 @@ struct SettingsView: View {
     @State private var themeMode: String?        // dynamic mode ("wallpaper"/"daynight"), nil = fixed
     @State private var themeCode: String = ""    // paste-a-theme-code field
     @State private var notchBanner: Bool
+    @State private var notificationSound: String
+    /// One long-lived player so a previewed sound is retained until it finishes
+    /// (a fresh throwaway per click could be deallocated mid-playback).
+    @State private var soundPlayer = SystemAlertSoundPlayer()
     @State private var closeOnClickOutside: Bool
     @State private var thresholds: MetricThresholds
     @State private var pacing: AlertPacing
@@ -88,6 +92,7 @@ struct SettingsView: View {
         _themeMaterial = State(initialValue: config.global.themeMaterial)
         _themeMode = State(initialValue: config.global.themeMode)
         _notchBanner = State(initialValue: config.global.notchBanner)
+        _notificationSound = State(initialValue: config.global.notificationSound)
         _closeOnClickOutside = State(initialValue: config.global.closeOnClickOutside)
         _thresholds = State(initialValue: config.global.thresholds)
         _pacing = State(initialValue: config.global.pacing)
@@ -534,11 +539,46 @@ struct SettingsView: View {
                    isOn: $closeOnClickOutside)
                 .toggleStyle(.checkbox).font(.system(size: 12))
             HStack(spacing: 8) {
-                Text("Quiet hours").font(.system(size: 12)).frame(width: 90, alignment: .leading)
+                Text("Notification sound").font(.system(size: 12)).frame(width: 120, alignment: .leading)
+                Menu {
+                    Button("Default") { selectSound("default") }
+                    Button("None (silent)") { selectSound("none") }
+                    Divider()
+                    ForEach(AlertSound.systemSoundNames, id: \.self) { name in
+                        Button(name) { selectSound(name) }
+                    }
+                } label: {
+                    HStack {
+                        Text(soundLabel).font(.system(size: 12))
+                        Spacer()
+                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                }
+                .menuStyle(.borderlessButton).frame(width: 150)
+                Text("a named sound plays even while you're busy").font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 8) {
+                Text("Quiet hours").font(.system(size: 12)).frame(width: 120, alignment: .leading)
                 TextField("22:00-08:00", text: $quietHours)
                     .textFieldStyle(.roundedBorder).frame(width: 130)
                 Text("no notifications in this window").font(.system(size: 11)).foregroundStyle(.secondary)
             }
+        }
+    }
+
+    /// Choose a notification sound and preview it immediately, so picking one is
+    /// "hear it, then keep it".
+    private func selectSound(_ value: String) {
+        notificationSound = value
+        soundPlayer.play(AlertSound.resolve(value))
+    }
+
+    /// The human label for the currently-selected sound.
+    private var soundLabel: String {
+        switch notificationSound {
+        case "default": return "Default"
+        case "none":    return "None (silent)"
+        default:        return notificationSound
         }
     }
 
@@ -893,7 +933,8 @@ struct SettingsView: View {
                                     quietHours: trimmed.isEmpty ? nil : trimmed,
                                     theme: theme, themeAccent: themeAccent,
                                     themeMaterial: themeMaterial, themeMode: themeMode,
-                                    notchBanner: notchBanner, closeOnClickOutside: closeOnClickOutside,
+                                    notchBanner: notchBanner, notificationSound: notificationSound,
+                                    closeOnClickOutside: closeOnClickOutside,
                                     thresholds: thresholds, pacing: pacing)
         onSave(out)
     }

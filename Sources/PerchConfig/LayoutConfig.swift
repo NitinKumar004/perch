@@ -84,6 +84,12 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
     /// Whether alerts also show as a transient banner in the notch (in addition
     /// to the macOS notification). Defaults on.
     public var notchBanner: Bool
+    /// The sound played when an alert is delivered: "default" (the macOS default
+    /// notification sound — the original behaviour), "none" (silent), or a named
+    /// system sound (e.g. "Glass"). A named sound is played by the app directly,
+    /// so it's heard even while Focus/Do-Not-Disturb suppresses the OS banner;
+    /// quiet hours still gate it. Defaults to "default".
+    public var notificationSound: String
     /// When on, clicking anywhere outside the open panel closes it (a common
     /// dropdown convenience). Off by default — the panel stays open until you
     /// click the notch again or Quit — so it never closes out from under you.
@@ -98,7 +104,8 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
     public init(autoOpenOnRed: Bool = false, quietHours: String? = nil,
                 theme: String = GlobalSettings.defaultThemeID, themeAccent: String? = nil,
                 themeMaterial: String? = nil, themeMode: String? = nil,
-                notchBanner: Bool = true, closeOnClickOutside: Bool = false,
+                notchBanner: Bool = true, notificationSound: String = "default",
+                closeOnClickOutside: Bool = false,
                 thresholds: MetricThresholds = .standard,
                 pacing: AlertPacing = .standard) {
         self.autoOpenOnRed = autoOpenOnRed
@@ -108,6 +115,7 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
         self.themeMaterial = themeMaterial
         self.themeMode = themeMode
         self.notchBanner = notchBanner
+        self.notificationSound = notificationSound
         self.closeOnClickOutside = closeOnClickOutside
         self.thresholds = thresholds
         self.pacing = pacing
@@ -122,6 +130,7 @@ public struct GlobalSettings: Codable, Equatable, Sendable {
         themeMaterial = try c.decodeIfPresent(String.self, forKey: .themeMaterial)
         themeMode = try c.decodeIfPresent(String.self, forKey: .themeMode)
         notchBanner = try c.decodeIfPresent(Bool.self, forKey: .notchBanner) ?? true
+        notificationSound = try c.decodeIfPresent(String.self, forKey: .notificationSound) ?? "default"
         closeOnClickOutside = try c.decodeIfPresent(Bool.self, forKey: .closeOnClickOutside) ?? false
         thresholds = try c.decodeIfPresent(MetricThresholds.self, forKey: .thresholds) ?? .standard
         pacing = try c.decodeIfPresent(AlertPacing.self, forKey: .pacing) ?? .standard

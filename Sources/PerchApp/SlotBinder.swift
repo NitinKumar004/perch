@@ -108,6 +108,10 @@ final class SlotBinder {
                                          title: reason,
                                          body: "reached a critical level",
                                          tint: .critical, url: nil))
+                    // This banner doesn't go through post() (no native
+                    // notification), so play the configured sound here too — else a
+                    // metric crossing red while you're busy surfaces silently.
+                    notifier.playConfiguredSound()
                 }
                 if pills.contains(.leftPill) { model.leftPill = render.pill }
                 if pills.contains(.rightPill) { model.rightPill = render.pill }

@@ -58,7 +58,7 @@ public struct MultiBuildsModule: NotchModule {
         let clock = context.clock
         let client = client
         let branch = context.settings["branch"] ?? "main"
-        let repos = Self.parseRepos(context.settings["repos"] ?? "")
+        let repos = parseRepoList(context.settings["repos"] ?? "")
         let idleInterval = context.refreshSeconds(fallback: 90, minimum: 30)
 
         return AsyncStream { continuation in
@@ -87,7 +87,7 @@ public struct MultiBuildsModule: NotchModule {
                         do {
                             let fetch = try await client.latestBuild(owner: parts[0], repo: parts[1], branch: branch, etag: nil)
                             if case .ok(let observation?, _) = fetch {
-                                results.append(RepoBuild(repo: repo, state: Self.map(observation.state), url: observation.url))
+                                results.append(RepoBuild(repo: repo, state: BuildState(observation.state), url: observation.url))
                             } else {
                                 results.append(RepoBuild(repo: repo, state: .unknown,
                                                          url: "https://github.com/\(repo)/actions"))
@@ -129,7 +129,7 @@ public struct MultiBuildsModule: NotchModule {
     }
 
     public func contextLabel(_ context: ModuleContext) -> String? {
-        let repos = Self.parseRepos(context.settings["repos"] ?? "")
+        let repos = parseRepoList(context.settings["repos"] ?? "")
         return repos.isEmpty ? "no repos set" : "\(repos.count) repos"
     }
 
@@ -156,27 +156,12 @@ public struct MultiBuildsModule: NotchModule {
                            title: "Build failing", body: first.repo, url: first.url)
     }
 
-    static func parseRepos(_ raw: String) -> [String] {
-        raw.split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { $0.contains("/") && !$0.isEmpty }
-    }
-
     static func stateLabel(_ state: BuildState) -> String {
         switch state {
         case .passing: return "passing"
         case .failing: return "failing"
         case .running: return "running"
         case .unknown: return "no data"
-        }
-    }
-
-    private static func map(_ state: RunState) -> BuildState {
-        switch state {
-        case .running:           return .running
-        case .passing:           return .passing
-        case .failing:           return .failing
-        case .neutral, .unknown: return .unknown
         }
     }
 }

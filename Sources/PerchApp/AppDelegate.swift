@@ -370,20 +370,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // can never drop a live row.
         let mentioned = Set(orderedIDs)
         items.append(contentsOf: model.panelItems.filter { !mentioned.contains($0.id) })
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
-            model.panelItems = items
-        }
 
-        // Persist the explicit rows in their new order. Bail if any lost its
-        // binding, so a reorder can never silently drop a module from the config.
+        // Validate that we can PERSIST this order BEFORE we change the visible
+        // one — otherwise a reorder we can't save would show on screen and then
+        // silently revert on the next reload/relaunch.
         let newPanel = items.compactMap { panelBindings[$0.id] }
         var config = configStore.load()
         let key = config.presets[config.activePreset] != nil
             ? config.activePreset : (config.presets.keys.sorted().first ?? "default")
-        guard let preset = config.presets[key], newPanel.count == preset.panel.count else { return }
+        guard let preset = config.presets[key], newPanel.count == preset.panel.count else {
+            NSLog("[Perch] panel reorder not persisted: bindings don't match the preset — leaving order unchanged")
+            return
+        }
+
+        let previousItems = model.panelItems
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+            model.panelItems = items
+        }
         config.presets[key]?.panel = newPanel
-        try? configStore.save(config)
-        configWatcher?.markApplied()   // our own write — don't bounce back as a reload
+        do {
+            try configStore.save(config)
+            configWatcher?.markApplied()   // our own write — don't bounce back as a reload
+        } catch {
+            // Couldn't persist → put the visible order back now, so the screen
+            // matches the saved config instead of silently reverting on reload.
+            NSLog("[Perch] panel reorder save failed, reverting order: \(error.localizedDescription)")
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                model.panelItems = previousItems
+            }
+        }
     }
 
     /// A pill was clicked: toggle the detail panel. The panel's own footer holds
@@ -483,8 +498,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { model.isConnected = await auth.isConnected() }
     }
 
-    /// Route a module's detail-row action. Today: focus-timer pause/reset,
-    /// encoded as "timer.toggle:<id>" / "timer.reset:<id>".
+    /// Route a module's detail-row action to the controller that owns it, keyed by
+    /// the action's verb ("timer.toggle:<id>", "clip.copy:<text>", "shelf.*").
+    ///
+    /// Deliberately a small closed switch, not a `NotchModule.handleAction`
+    /// protocol hook: generic per-module dispatch would need the shell to hold the
+    /// live module instances and route an action id back to its producer, which is
+    /// more coupling than three interactive modules justify. Revisit if interactive
+    /// modules proliferate — then a defaulted protocol method earns its keep.
     private func handleAction(_ action: String) {
         let parts = action.split(separator: ":", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { return }

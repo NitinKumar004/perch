@@ -32,22 +32,32 @@ public struct ClipboardModule: NotchModule {
     )
 
     private let controller: ClipboardController
+    private let pasteboard: PasteboardReading
 
     public init(controller: ClipboardController) {
         self.controller = controller
+        self.pasteboard = SystemPasteboard()
+    }
+
+    /// Test seam: inject a fake pasteboard so the watch/record loop is testable
+    /// without touching the real system pasteboard.
+    init(controller: ClipboardController, pasteboard: PasteboardReading) {
+        self.controller = controller
+        self.pasteboard = pasteboard
     }
 
     public func stream(_ context: ModuleContext) -> AsyncStream<Snapshot<ClipboardHistory>> {
         let clock = context.clock
         let controller = controller
+        let pasteboard = pasteboard
         let interval = context.refreshSeconds(fallback: 1, minimum: 1)
 
         return AsyncStream { continuation in
             let task = Task {
-                var lastChangeCount = Self.currentChangeCount()
+                var lastChangeCount = pasteboard.changeCount()
                 var lastEmitted: [String] = []
                 // Seed with whatever's already on the pasteboard.
-                if let text = Self.currentString() { await controller.record(text) }
+                if let text = pasteboard.currentString() { await controller.record(text) }
                 lastEmitted = await controller.snapshot()
                 continuation.yield(Snapshot(value: ClipboardHistory(entries: lastEmitted),
                                             freshness: .live, asOf: clock.now()))
@@ -55,10 +65,10 @@ public struct ClipboardModule: NotchModule {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(interval))
                     // Pick up a new copy from the system pasteboard…
-                    let change = Self.currentChangeCount()
+                    let change = pasteboard.changeCount()
                     if change != lastChangeCount {
                         lastChangeCount = change
-                        if let text = Self.currentString() { await controller.record(text) }
+                        if let text = pasteboard.currentString() { await controller.record(text) }
                     }
                     // …and re-emit whenever the on-device history changes for ANY
                     // reason — new copy, an entry re-copied, or "Clear history"
@@ -114,16 +124,27 @@ public struct ClipboardModule: NotchModule {
             .trimmingCharacters(in: .whitespaces)
         return oneLine.count > limit ? String(oneLine.prefix(limit)) + "…" : oneLine
     }
+}
 
-    private static func currentChangeCount() -> Int {
+/// The pasteboard-read seam, so the module is testable without a real
+/// `NSPasteboard` — the same shape `CalendarReading`/`HealthProbe` use to keep a
+/// system dependency injectable and the module logic pure.
+protocol PasteboardReading: Sendable {
+    func changeCount() -> Int
+    func currentString() -> String?
+}
+
+/// Production reader backed by AppKit's `NSPasteboard` (a data API, isolated
+/// here behind the seam so the module body never touches AppKit directly).
+struct SystemPasteboard: PasteboardReading {
+    func changeCount() -> Int {
         #if canImport(AppKit)
         return NSPasteboard.general.changeCount
         #else
         return 0
         #endif
     }
-
-    private static func currentString() -> String? {
+    func currentString() -> String? {
         #if canImport(AppKit)
         return NSPasteboard.general.string(forType: .string)
         #else

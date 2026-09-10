@@ -112,11 +112,11 @@ struct SettingsView: View {
                         disclosureRow("levels", "Alert levels", "bell.badge")    { thresholdsSection }
                         rowDivider
                         disclosureRow("left", "Left pill", "l.square")           {
-                            slotSection(caption: "The icon just left of the notch.", editor: $left, kind: .left)
+                            slotSection(caption: "The icon just left of the notch.", editor: $left)
                         }
                         rowDivider
                         disclosureRow("right", "Right pill", "r.square")         {
-                            slotSection(caption: "The icon just right of the notch.", editor: $right, kind: .right)
+                            slotSection(caption: "The icon just right of the notch.", editor: $right)
                         }
                         rowDivider
                         disclosureRow("panel", "Panel", "list.bullet.rectangle") { panelSection }
@@ -709,24 +709,19 @@ struct SettingsView: View {
 
     // MARK: - One slot (a single module)
 
-    private func slotSection(caption: String, editor: Binding<SlotEditor>, kind: SlotKind) -> some View {
+    private func slotSection(caption: String, editor: Binding<SlotEditor>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(caption).font(.system(size: 11)).foregroundStyle(.secondary)
-            modulePicker(editor: editor, kind: kind)
+            modulePicker(editor: editor)
             settingsFields(for: editor)
         }
     }
-
-    /// Which slot a picker is for (kept for call-site clarity; every module is
-    /// selectable in every slot now — you can watch the same module type in more
-    /// than one place, e.g. Pull requests for two different repos).
-    private enum SlotKind: Equatable { case left, right, panel(Int) }
 
     /// A module picker whose choices are grouped by what they need, so the
     /// local-vs-GitHub distinction is obvious *before* you pick. Every module is
     /// offered in every slot — duplicates of a configurable module (a second
     /// repo, another URL, another port) are exactly what makes the HUD yours.
-    private func modulePicker(editor: Binding<SlotEditor>, kind: SlotKind) -> some View {
+    private func modulePicker(editor: Binding<SlotEditor>) -> some View {
         let selected = catalog.first { $0.id == editor.wrappedValue.moduleID }
         // A Menu (not a Picker) so the closed control shows only the chosen name,
         // while each item explains itself — "Name — what it does" — so you know
@@ -821,7 +816,7 @@ struct SettingsView: View {
             ForEach(panel.indices, id: \.self) { i in
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        modulePicker(editor: $panel[i], kind: .panel(i))
+                        modulePicker(editor: $panel[i])
                         // Pin this panel module to a pill — it stays in the panel
                         // and replaces whatever that pill held.
                         Menu {

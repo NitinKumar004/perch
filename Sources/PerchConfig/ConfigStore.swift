@@ -26,8 +26,8 @@ public struct ConfigStore: Sendable {
     /// Load the config, always returning a usable value.
     ///
     /// - No file: writes and returns the default config.
-    /// - Corrupt file: backs it up to `layout.corrupt.<timestamp>.json`, then
-    ///   writes and returns the default config.
+    /// - Corrupt file: backs it up to `layout.corrupt.<timestamp>-<uuid>.json`,
+    ///   then writes and returns the default config.
     /// - Older version: migrates forward and re-saves.
     public func load() -> LayoutConfig {
         guard fileManager.fileExists(atPath: fileURL.path) else {
@@ -65,10 +65,14 @@ public struct ConfigStore: Sendable {
     }
 
     private func backupCorruptFile() {
-        let stamp = Int(Date().timeIntervalSince1970)
+        // A UUID suffix — not just a 1-second timestamp — so a watcher that
+        // re-triggers load() on a still-corrupt file within the same second can't
+        // collide, fail the move, and then have the reset overwrite the file we
+        // meant to preserve for inspection.
+        let suffix = "\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8))"
         let backup = fileURL
             .deletingLastPathComponent()
-            .appendingPathComponent("layout.corrupt.\(stamp).json")
+            .appendingPathComponent("layout.corrupt.\(suffix).json")
         try? fileManager.moveItem(at: fileURL, to: backup)
     }
 }

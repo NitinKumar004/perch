@@ -14,6 +14,24 @@ public struct DetailRow: Equatable, Sendable, Identifiable {
     public let url: String?
     /// If set, the row renders a small trend graph (most-recent value last).
     public let sparkline: [Double]?
+    /// If set, the row renders as a full-width bar chart (one bar per value,
+    /// most-recent last and emphasized) with the title/subtitle as its caption —
+    /// a "hero" chart for a daily series (e.g. tokens/day), not a squeezed inline
+    /// trend. Takes precedence over `sparkline`/`progress` for that row.
+    public let bars: [Double]?
+    /// Optional per-bar labels (same count/order as `bars`) — a short date like
+    /// "Sep 8". Rendered as the chart's oldest→newest axis and as each bar's
+    /// hover tooltip, so a reader can tell which bar is which day.
+    public let barLabels: [String]?
+    /// If true, the row is a compact "stat tile" (title + value + optional bar),
+    /// laid out two-per-line in a grid instead of a full-width row — so a run of
+    /// small stats (per-model split, usage insights) stays dense like the Combined
+    /// section rather than a long vertical list.
+    public let compact: Bool
+    /// Optional plain-language explanation of what this stat means and why it
+    /// matters. When set, a compact tile shows an ⓘ hint and reveals this on hover
+    /// — so a metric like "Context reuse" can teach itself.
+    public let info: String?
     /// If set (0…1), the row renders a thin progress bar — e.g. a CI pipeline at
     /// 5/10 checks done. Distinct from `sparkline`: this is completion, not trend.
     public let progress: Double?
@@ -30,6 +48,8 @@ public struct DetailRow: Equatable, Sendable, Identifiable {
     public init(id: String, title: String, subtitle: String? = nil,
                 tint: Tint = .neutral, symbolName: String? = nil,
                 url: String? = nil, sparkline: [Double]? = nil,
+                bars: [Double]? = nil, barLabels: [String]? = nil,
+                compact: Bool = false, info: String? = nil,
                 progress: Double? = nil, action: String? = nil,
                 secondaryAction: String? = nil, secondaryIcon: String? = nil) {
         self.id = id
@@ -39,6 +59,10 @@ public struct DetailRow: Equatable, Sendable, Identifiable {
         self.symbolName = symbolName
         self.url = url
         self.sparkline = sparkline
+        self.bars = bars
+        self.barLabels = barLabels
+        self.compact = compact
+        self.info = info
         self.progress = progress
         self.action = action
         self.secondaryAction = secondaryAction

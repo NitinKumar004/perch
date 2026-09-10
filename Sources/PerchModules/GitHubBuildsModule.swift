@@ -132,7 +132,7 @@ public struct GitHubBuildsModule: NotchModule {
                             nextDelay = idleInterval
                         case .ok(let observation?, let newEtag):
                             etag = newEtag
-                            let mapped = Self.map(observation.state)
+                            let mapped = BuildState(observation.state)
                             // History is per workflow (a repo can run several), so a
                             // slow deploy job's ETA never bleeds into a fast test job.
                             let historyKey = "\(key)#\(observation.workflowName)"
@@ -278,15 +278,6 @@ public struct GitHubBuildsModule: NotchModule {
         if case GitHubAuthError.http(let status) = error, status == 401 { return true }
         if case GitHubAuthError.notConnected = error { return true }
         return false
-    }
-
-    private static func map(_ state: RunState) -> BuildState {
-        switch state {
-        case .running:            return .running
-        case .passing:            return .passing
-        case .failing:            return .failing
-        case .neutral, .unknown:  return .unknown
-        }
     }
 
     private static func formatDuration(_ seconds: Int) -> String {

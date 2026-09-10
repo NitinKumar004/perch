@@ -1,6 +1,7 @@
 import Foundation
 import PerchCore
 import PerchModuleKit
+import PerchGitHub
 
 /// The state of a CI build, as a module would model it. Deliberately small and
 /// `Sendable` so it can flow across the concurrency boundary.
@@ -9,6 +10,27 @@ public enum BuildState: Sendable, Equatable {
     case running
     case passing
     case failing
+
+    /// Fold GitHub's `RunState` into the module-level build state — in one place,
+    /// so the single-repo and multi-repo build modules can't drift.
+    public init(_ state: RunState) {
+        switch state {
+        case .running:            self = .running
+        case .passing:            self = .passing
+        case .failing:            self = .failing
+        case .neutral, .unknown:  self = .unknown
+        }
+    }
+}
+
+/// Parse a user's repo-list setting into the "owner/name"-shaped entries it
+/// names. One parser for the PR and build modules, so both accept the same
+/// separators (comma, space, or newline) — previously the build module split on
+/// commas only, silently dropping a space-separated `"owner/a owner/b"`.
+func parseRepoList(_ raw: String) -> [String] {
+    raw.split(whereSeparator: { $0 == "," || $0 == " " || $0 == "\n" })
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { $0.contains("/") && !$0.isEmpty }
 }
 
 /// The shared "how a build looks as a pill" mapping, used by both the demo and

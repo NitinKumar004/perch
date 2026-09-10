@@ -32,10 +32,12 @@ public struct ModuleContext: Sendable {
         return raw
     }
 
-    /// A boolean setting stored as "true"/"false", or `fallback` if unset.
+    /// A boolean setting, or `fallback` if unset. Tolerant of how a toggle might
+    /// be stored across sources — "true"/"1"/"yes"/"on" (any case) read as true,
+    /// anything else as false.
     public func bool(_ key: String, fallback: Bool) -> Bool {
         guard let raw = settings[key] else { return fallback }
-        return raw == "true"
+        return ["true", "1", "yes", "on"].contains(raw.lowercased())
     }
 
     /// An integer setting, or `fallback` if unset/invalid, clamped to a range.

@@ -66,7 +66,7 @@ public struct GitHubPRsModule: NotchModule {
         let client = client
         let queue = PRQueue(rawValue: context.settings["queue"] ?? "") ?? .reviewing
         // One repo, several (comma/space-separated), or blank = all accessible.
-        let repos = Self.parseRepos(context.settings["repo"] ?? "")
+        let repos = parseRepoList(context.settings["repo"] ?? "")
         let scopeLabel = repos.isEmpty ? nil : repos.joined(separator: ", ")
         let interval = context.refreshSeconds(fallback: 90, minimum: 30)
         let limit = context.int("limit", fallback: 8, minimum: 1, maximum: 25)
@@ -189,7 +189,7 @@ public struct GitHubPRsModule: NotchModule {
     }
 
     public func contextLabel(_ context: ModuleContext) -> String? {
-        let repos = Self.parseRepos(context.settings["repo"] ?? "")
+        let repos = parseRepoList(context.settings["repo"] ?? "")
         let scope: String
         switch repos.count {
         case 0:  scope = "all repos"
@@ -252,15 +252,6 @@ public struct GitHubPRsModule: NotchModule {
         var merged: [PRSummary] = []
         for pr in requested + reviewed where seen.insert("\(pr.repo)#\(pr.number)").inserted { merged.append(pr) }
         return merged.sorted { $0.number > $1.number }
-    }
-
-    /// Parse the `repo` setting into a list: one repo, a comma/space-separated
-    /// set of repos to combine, or empty = all accessible repos. Only entries
-    /// that look like "owner/name" are kept.
-    static func parseRepos(_ raw: String) -> [String] {
-        raw.split(whereSeparator: { $0 == "," || $0 == " " || $0 == "\n" })
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { $0.contains("/") && !$0.isEmpty }
     }
 
     public func detail(for value: PRState) -> [DetailRow] {

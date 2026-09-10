@@ -157,11 +157,11 @@ private func series(_ v: Int) -> VitalSeries { VitalSeries(current: v, history: 
 }
 
 @Test func prParseReposHandlesOneManyOrBlank() {
-    #expect(GitHubPRsModule.parseRepos("") == [])                          // blank = all repos
-    #expect(GitHubPRsModule.parseRepos("acme/api") == ["acme/api"])        // one
-    #expect(GitHubPRsModule.parseRepos("acme/api, acme/web") == ["acme/api", "acme/web"])
-    #expect(GitHubPRsModule.parseRepos("acme/api acme/web") == ["acme/api", "acme/web"]) // spaces
-    #expect(GitHubPRsModule.parseRepos("garbage, acme/api") == ["acme/api"]) // needs a slash
+    #expect(parseRepoList("") == [])                          // blank = all repos
+    #expect(parseRepoList("acme/api") == ["acme/api"])        // one
+    #expect(parseRepoList("acme/api, acme/web") == ["acme/api", "acme/web"])
+    #expect(parseRepoList("acme/api acme/web") == ["acme/api", "acme/web"]) // spaces
+    #expect(parseRepoList("garbage, acme/api") == ["acme/api"]) // needs a slash
 }
 
 @Test func prsFaceGoesQuietAtZero() {

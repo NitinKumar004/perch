@@ -64,6 +64,7 @@ struct PanelView: View {
     @State private var scrollProxy: ScrollViewProxy?         // to drive auto-scroll during a drag
     @State private var expanded: Set<String> = []  // sections showing their full list
     @State private var copiedRowID: String?        // row whose link was just copied (brief ✓)
+    @State private var openInfoID: String?         // tile whose ⓘ explanation is open
     @Environment(\.palette) private var palette
     @Environment(\.theme) private var theme
 
@@ -115,6 +116,9 @@ struct PanelView: View {
             // Adopt an external order change (config reload) when not mid-drag.
             if draggingID == nil { order = ids }
         }
+        // If the panel is dismissed mid-drag with the cursor near an edge, the
+        // edge-auto-scroll loop is otherwise never cancelled — tear it down here.
+        .onDisappear { edgeScrollTask?.cancel() }
     }
 
     /// The panel's card surface, themed. "Frosted" blurs what's behind (macOS
@@ -289,13 +293,23 @@ struct PanelView: View {
                 // row title against the pill text misfires here, because the pill
                 // text is every metric concatenated). Show each with its name +
                 // value, laid out two per line so the section stays compact.
-                combinedGrid(Array(item.detail.prefix(shown)))
+                metricGrid(Array(item.detail.prefix(shown)))
             } else {
-                ForEach(Array(item.detail.prefix(shown))) { row in
-                    if isRedundantSummary(row, item: item) {
-                        summaryStrip(row, pillText: item.content.face.text)
-                    } else {
-                        detailRow(row)
+                // Group the rows: full-width rows (hero chart, PRs, …) render one
+                // per line; a run of `compact` stat tiles (per-model split, usage
+                // insights) renders two-per-line in the grid, staying dense.
+                ForEach(rowGroups(Array(item.detail.prefix(shown)))) { group in
+                    switch group {
+                    case .flow(let row):
+                        if row.bars != nil {
+                            chartRow(row)   // a hero chart is never collapsed
+                        } else if isRedundantSummary(row, item: item) {
+                            summaryStrip(row, pillText: item.content.face.text)
+                        } else {
+                            detailRow(row)
+                        }
+                    case .grid(let rows):
+                        metricGrid(rows)
                     }
                 }
             }
@@ -327,30 +341,77 @@ struct PanelView: View {
         })
     }
 
-    /// A Combined section's metrics, two per line, each as its own little block:
-    /// icon + name, the value, and — for CPU / memory and other trending metrics
-    /// — the trend graph. Blocks keep every metric named and readable at a
-    /// glance; the panel scrolls when there are more than fit.
+    /// A group of a section's rows for layout: either a full-width row, or a run
+    /// of compact stat tiles that pack two-per-line.
+    private enum RowGroup: Identifiable {
+        case flow(DetailRow)
+        case grid([DetailRow])
+        var id: String {
+            switch self {
+            case .flow(let r): return "flow-\(r.id)"
+            case .grid(let rs): return "grid-\(rs.first?.id ?? "")"
+            }
+        }
+    }
+
+    /// Partition rows into full-width singles and runs of compact tiles, preserving
+    /// order — so consecutive `compact` rows collapse into one grid while anything
+    /// full-width (a hero chart, a PR) stays on its own line.
+    private func rowGroups(_ rows: [DetailRow]) -> [RowGroup] {
+        var groups: [RowGroup] = []
+        var bucket: [DetailRow] = []
+        func flush() {
+            if !bucket.isEmpty { groups.append(.grid(bucket)); bucket = [] }
+        }
+        for row in rows {
+            if row.compact && row.bars == nil {
+                bucket.append(row)
+            } else {
+                flush()
+                groups.append(.flow(row))
+            }
+        }
+        flush()
+        return groups
+    }
+
+    /// A run of stat tiles, two per line, each as its own little block: icon +
+    /// name, the value, and — for a trending/percentage metric — its trend graph
+    /// or level bar. Used by the Combined section and by any run of `compact`
+    /// rows (per-model split, usage insights). The panel scrolls when there are
+    /// more than fit.
     @ViewBuilder
-    private func combinedGrid(_ rows: [DetailRow]) -> some View {
+    private func metricGrid(_ rows: [DetailRow]) -> some View {
         // FIXED column width, not flexible: two 166pt columns + 8pt gap + 28pt
         // padding = 368pt < the 380pt card. Fixed columns can never expand to make
         // the panel overflow — flexible ones did, and no outer frame could shrink
         // them back below their content's minimum, so the labels got sliced off.
-        LazyVGrid(
-            columns: [GridItem(.fixed(166), spacing: 8, alignment: .top),
-                      GridItem(.fixed(166), spacing: 8, alignment: .top)],
-            alignment: .leading, spacing: 8
-        ) {
-            ForEach(rows) { row in metricBlock(row) }
+        VStack(spacing: 8) {
+            LazyVGrid(
+                columns: [GridItem(.fixed(166), spacing: 8, alignment: .top),
+                          GridItem(.fixed(166), spacing: 8, alignment: .top)],
+                alignment: .leading, spacing: 8
+            ) {
+                ForEach(rows) { row in metricBlock(row) }
+            }
+            // The tapped tile's explanation, inline under this grid group.
+            if let id = openInfoID, let row = rows.first(where: { $0.id == id }), row.info != nil {
+                infoCard(row)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
         .padding(.horizontal, 14)
         .padding(.top, 2)
         .padding(.bottom, 8)
     }
 
-    /// One metric block: name on top, then the value and its graph. The value
-    /// wraps to a second line rather than truncating, so it's always readable.
+    /// A fixed tile height so every stat block in the grid is the same size,
+    /// regardless of whether it has a graph or a longer value.
+    private let metricTileHeight: CGFloat = 56
+
+    /// One metric block: name on top, then the value and its graph. Single-line
+    /// value (shrinks a touch rather than wrapping) so all tiles are one uniform
+    /// height. An ⓘ hint appears when the row carries an explanation.
     private func metricBlock(_ row: DetailRow) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
@@ -363,15 +424,29 @@ struct PanelView: View {
                     .font(theme.font(11, .semibold))
                     .foregroundStyle(palette.ink(0.9))
                     .lineLimit(1)
-                Spacer(minLength: 0)
+                Spacer(minLength: 4)
+                if let info = row.info, !info.isEmpty {
+                    let isOpen = openInfoID == row.id
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            openInfoID = isOpen ? nil : row.id
+                        }
+                    } label: {
+                        Image(systemName: isOpen ? "info.circle.fill" : "info.circle")
+                            .font(theme.font(11))
+                            .foregroundStyle(isOpen ? tintColor(row.tint) : palette.ink(0.4))
+                    }
+                    .buttonStyle(.plain)
+                    .help(info)
+                }
             }
             HStack(alignment: .bottom, spacing: 6) {
                 if let subtitle = row.subtitle {
                     Text(subtitle)
                         .font(theme.font(11))
                         .foregroundStyle(palette.ink(0.6))
-                        .lineLimit(2)                       // wraps, never cut off
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)            // shrink a hair, never wrap
                 }
                 Spacer(minLength: 4)
                 if let points = row.sparkline, points.count > 1 {
@@ -382,12 +457,43 @@ struct PanelView: View {
                         .frame(width: 52, height: 5)
                 }
             }
+            Spacer(minLength: 0)   // pin content to the top so short tiles match tall ones
         }
         .padding(9)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: metricTileHeight, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(palette.ink(0.05))
+        )
+    }
+
+    /// The explanation card shown under a tile grid when a tile's ⓘ is tapped —
+    /// full-width so a long, plain-language "what this means / why it matters"
+    /// reads cleanly. Tapping ⓘ again closes it.
+    private func infoCard(_ row: DetailRow) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: row.symbolName ?? "info.circle")
+                .font(theme.font(11))
+                .foregroundStyle(tintColor(row.tint))
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.title)
+                    .font(theme.font(11, .semibold))
+                    .foregroundStyle(palette.ink(0.9))
+                Text(row.info ?? "")
+                    .font(theme.font(10))
+                    .foregroundStyle(palette.ink(0.65))
+                    .fixedSize(horizontal: false, vertical: true)   // wrap, full text
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(palette.accent.opacity(0.10))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(palette.accent.opacity(0.25)))
         )
     }
 
@@ -490,6 +596,54 @@ struct PanelView: View {
         }
     }
 
+    /// A "hero" chart row: the value as a bold headline, a full-width bar chart,
+    /// and a caption below — so a daily series (tokens/day) fills the row's width
+    /// instead of squeezing a chart against the right edge with dead space beside
+    /// it. Used whenever a row carries `bars`.
+    @ViewBuilder
+    private func chartRow(_ row: DetailRow) -> some View {
+        let labels = row.barLabels ?? []
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                if let symbol = row.symbolName {
+                    Image(systemName: symbol)
+                        .font(theme.font(13))
+                        .foregroundStyle(tintColor(row.tint))
+                }
+                Text(row.title)
+                    .font(theme.font(16, .semibold))
+                    .foregroundStyle(palette.ink(0.92))
+                Spacer(minLength: 0)
+            }
+            if let bars = row.bars, bars.count > 1 {
+                VStack(spacing: 4) {
+                    BarChart(points: bars, color: tintColor(row.tint), labels: labels)
+                        .frame(height: 46)
+                    // Oldest → newest axis, so the timeline direction is explicit
+                    // and each end is dated (hover a bar for its exact day).
+                    if let first = labels.first, let last = labels.last, first != last {
+                        HStack {
+                            Text(first)
+                            Spacer(minLength: 8)
+                            Text(last)
+                        }
+                        .font(theme.font(9))
+                        .foregroundStyle(palette.ink(0.4))
+                    }
+                }
+            }
+            if let subtitle = row.subtitle {
+                Text(subtitle)
+                    .font(theme.font(10))
+                    .foregroundStyle(palette.ink(0.5))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     @ViewBuilder
     private func detailRow(_ row: DetailRow) -> some View {
         let content = HStack(spacing: 9) {
@@ -578,6 +732,11 @@ struct PanelView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
+            // GitHub is the only connection-requiring integration today, so the
+            // affordance names it directly. A second provider would generalize
+            // this to the `ModuleDescriptor.requiresConnection` contract (already
+            // used in Settings) + a provider abstraction — deferred until one
+            // exists, rather than building speculative machinery for one provider.
             if !isConnected {
                 controlButton("Connect GitHub", system: "person.badge.key", tint: palette.accent, action: actions.onConnect)
             }

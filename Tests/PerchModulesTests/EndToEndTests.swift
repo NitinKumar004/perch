@@ -365,6 +365,45 @@ private func firstRender(_ module: AnyNotchModule,
     #expect(row?.action == "clip.copy:hello e2e")   // action carries the text, not an index
 }
 
+@Test func clipboardSeedsFromInjectedPasteboard() async {
+    // The pasteboard seam drives the watch loop without the real system
+    // pasteboard: the module seeds its history from whatever the reader returns.
+    struct FakePasteboard: PasteboardReading {
+        func changeCount() -> Int { 1 }
+        func currentString() -> String? { "seeded copy" }
+    }
+    let m = ClipboardModule(controller: ClipboardController(), pasteboard: FakePasteboard())
+    var iterator = m.stream(ModuleContext()).makeAsyncIterator()
+    let first = await iterator.next()
+    #expect(first?.value.entries.contains("seeded copy") == true)
+}
+
+@Test func e2e_aiUsageStreamsFromLocalStatsFile() async throws {
+    // Write a real stats-cache.json to a temp dir and stream the module from it,
+    // exercising the whole periodic read → decode → snapshot → pill/panel path.
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("perch-aiusage-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let json = """
+    {"dailyModelTokens":[{"date":"2026-09-07","tokensByModel":{"claude-opus-4-8":2000000}},
+    {"date":"2026-09-08","tokensByModel":{"claude-opus-4-8":3000000,"claude-sonnet-5":1000000}}],
+    "dailyActivity":[{"date":"2026-09-08","messageCount":50,"toolCallCount":12}],
+    "modelUsage":{"claude-opus-4-8":{"inputTokens":100,"cacheReadInputTokens":9000,"cacheCreationInputTokens":900}},
+    "hourCounts":{"14":7},"totalSessions":10,"totalMessages":5000,"firstSessionDate":"2026-02-12"}
+    """
+    try json.write(to: dir.appendingPathComponent("stats-cache.json"), atomically: true, encoding: .utf8)
+
+    let m = AnyNotchModule(AIUsageModule(dir: dir.path))
+    let render = await firstRender(m, settings: ["refreshSeconds": "30"]) {
+        $0.pill.face.text.hasPrefix("AI ") && $0.detail.contains { $0.bars != nil }
+    }
+    #expect(render?.pill.face.text == "AI 6.0M")                          // windowTokens = 6,000,000
+    #expect(render?.contextLabel == "Claude Code · last 14 days")
+    #expect(render?.detail.first?.bars == [2_000_000, 4_000_000])        // daily hero chart
+    #expect(render?.detail.contains { $0.title == "Context reuse" } == true)  // insight tile
+}
+
 
 @Test func e2e_fileShelfStreamShowsDroppedFile() async {
     let controller = FileShelfController()

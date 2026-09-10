@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import PerchCore
 import PerchModuleKit
+import PerchConfig
 @testable import PerchModules
 
 // MARK: - Timer
@@ -241,6 +242,7 @@ import PerchModuleKit
     #expect(FileShelfModule.descriptor.detailFirst)
     #expect(GitHubPRsModule.descriptor.detailFirst)
     #expect(MultiBuildsModule.descriptor.detailFirst)
+    #expect(AIUsageModule.descriptor.detailFirst)   // the chart + insights panel is the point
     // Glanceable modules are not detail-first — a pill is enough.
     #expect(!VitalsModule.descriptor.detailFirst)
     #expect(!ClockModule.descriptor.detailFirst)
@@ -284,8 +286,8 @@ import PerchModuleKit
 }
 
 @Test func multiBuildParsesReposAndFace() {
-    #expect(MultiBuildsModule.parseRepos("owner/a, owner/b ,owner/c") == ["owner/a", "owner/b", "owner/c"])
-    #expect(MultiBuildsModule.parseRepos("garbage, also-bad").isEmpty)   // need a slash
+    #expect(parseRepoList("owner/a, owner/b ,owner/c") == ["owner/a", "owner/b", "owner/c"])
+    #expect(parseRepoList("garbage, also-bad").isEmpty)   // need a slash
     let m = MultiBuildsModule(client: .init(auth: .init(flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore())))
     let state = MultiBuildState(repos: [RepoBuild(repo: "o/a", state: .failing, url: "u")])
     #expect(m.face(for: state, in: .rightPill).text == "1✗")
@@ -430,4 +432,21 @@ private struct NoopStore: TokenStore {
     // from the picker — the old FakeBuild drift can't recur.
     #expect(ModuleSpecs.spec(id: FakeBuildModule.descriptor.id) != nil)
     #expect(!ModuleCatalog.all().contains { $0.id == FakeBuildModule.descriptor.id })
+}
+
+@Test func defaultConfigModulesAllExistInTheRegistry() {
+    // DefaultConfig lives in PerchConfig and can't see the module registry, so a
+    // module-id rename there would drift silently → a brand-new user's very first
+    // launch would resolve to nothing. This guard fails loudly instead.
+    let specIDs = Set(ModuleCatalog.all().map(\.id))
+    var referenced: Set<String> = []
+    for preset in PerchConfig.DefaultConfig.make().presets.values {
+        preset.leftPill.map { referenced.insert($0.module) }
+        preset.rightPill.map { referenced.insert($0.module) }
+        preset.panel.forEach { referenced.insert($0.module) }
+    }
+    #expect(!referenced.isEmpty)
+    for id in referenced {
+        #expect(specIDs.contains(id), "default-config module id '\(id)' is not in the registry")
+    }
 }

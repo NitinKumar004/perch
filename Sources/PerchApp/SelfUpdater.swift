@@ -28,6 +28,11 @@ enum SelfUpdater {
 
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("perch-update-\(UUID().uuidString)", isDirectory: true)
+        // Clean up the multi-MB download/unpack dir on every path EXCEPT a
+        // successful relaunch — there the detached swap script still needs the
+        // unpacked app until we exit, so it removes `tmp` itself when done.
+        var handedToSwapScript = false
+        defer { if !handedToSwapScript { try? FileManager.default.removeItem(at: tmp) } }
         do {
             try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
             // Download the zip.
@@ -78,8 +83,10 @@ enum SelfUpdater {
                 return .failed("archive didn't contain Perch.app")
             }
 
-            // Hand the swap to a detached shell that waits for us to exit.
-            try launchSwapScript(newApp: newApp.path, dest: bundleURL.path, pid: getpid())
+            // Hand the swap to a detached shell that waits for us to exit; it
+            // removes `tmp` itself after copying, so we skip the defer cleanup.
+            try launchSwapScript(newApp: newApp.path, dest: bundleURL.path, pid: getpid(), srcDir: tmp.path)
+            handedToSwapScript = true
             NSApp.terminate(nil)
             return .relaunching
         } catch {
@@ -114,8 +121,12 @@ enum SelfUpdater {
     /// back so the user is never left with no app (the earlier `rm -rf dest &&
     /// ditto` could delete the app and then fail the copy, leaving nothing).
     static func swapScript(newApp: String, dest: String, pid: Int32,
-                           fallbackURL: String = "https://github.com/NitinKumar004/perch/releases/latest") -> String {
+                           fallbackURL: String = "https://github.com/NitinKumar004/perch/releases/latest",
+                           srcDir: String = "") -> String {
         let d = shellQuote(dest), n = shellQuote(newApp), f = shellQuote(fallbackURL)
+        // Once the copy is done the unpack dir is no longer needed — remove it so
+        // no multi-MB orphan is left in the temp directory. Empty srcDir = skip.
+        let cleanup = srcDir.isEmpty ? "" : "\nrm -rf \(shellQuote(srcDir))"
         return """
         while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done
         BAK=\(d).backup
@@ -131,7 +142,7 @@ enum SelfUpdater {
           fi
         else
           open \(f)
-        fi
+        fi\(cleanup)
         """
     }
 
@@ -141,10 +152,10 @@ enum SelfUpdater {
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private static func launchSwapScript(newApp: String, dest: String, pid: Int32) throws {
+    private static func launchSwapScript(newApp: String, dest: String, pid: Int32, srcDir: String) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-c", swapScript(newApp: newApp, dest: dest, pid: pid)]
+        process.arguments = ["-c", swapScript(newApp: newApp, dest: dest, pid: pid, srcDir: srcDir)]
         try process.run()   // detached — outlives us on purpose
     }
 

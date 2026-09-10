@@ -146,6 +146,26 @@ public enum ModuleSpecs {
             return AnyNotchModule(CombinedModule(members: members))
         },
 
+        spec(AIUsageModule.self, category: .local, tag: "AI token usage",
+             settings: [
+                ModuleSetting(key: "dir", label: "Data folder", placeholder: "~/.claude", defaultValue: "~/.claude"),
+                ModuleSetting(key: "metric", label: "Show", placeholder: "", defaultValue: "tokens",
+                              options: [
+                                SettingOption(value: "tokens", label: "Tokens (last N days)"),
+                                SettingOption(value: "messages", label: "Messages (last N days)"),
+                              ]),
+                ModuleSetting(key: "days", label: "Days in the graph", placeholder: "14", defaultValue: "14"),
+                ModuleSetting(key: "insights", label: "Show insights (cache reuse, peak hour…)",
+                              placeholder: "", defaultValue: "true", kind: .toggle),
+                refreshSetting("120"),
+             ]) { binding, _ in
+            AnyNotchModule(AIUsageModule(
+                dir: binding.settings["dir"] ?? "~/.claude",
+                metric: binding.settings["metric"] ?? "tokens",
+                days: Int(binding.settings["days"] ?? "14") ?? 14,
+                insights: (binding.settings["insights"] ?? "true") != "false"))
+        },
+
         spec(VitalsModule.self, category: .local, tag: "usage %",
              settings: [refreshSetting("2")]) { _, deps in AnyNotchModule(VitalsModule(thresholds: deps.thresholds)) },
 

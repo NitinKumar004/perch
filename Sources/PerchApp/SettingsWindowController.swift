@@ -52,9 +52,11 @@ final class SettingsWindowController {
             window.title = "Perch Settings"
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
-            window.center()
             self.window = window
         }
+
+        // Open on the user's current screen + Space, standalone (see WindowPlacement).
+        WindowPlacement.prepareStandalone(window)
 
         // Perch is a background agent, which can't be foregrounded — the manager
         // promotes it to `.regular` so Settings takes focus in place (instead of

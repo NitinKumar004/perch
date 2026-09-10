@@ -14,22 +14,23 @@ final class WelcomeWindowController {
     }
 
     func show(onConnect: @escaping () -> Void, onOpenSettings: @escaping () -> Void) {
-        if let window {
-            activation.present(window)
-            return
+        let window: NSWindow
+        if let existing = self.window {
+            window = existing
+        } else {
+            let view = WelcomeView(
+                onConnect: onConnect,
+                onOpenSettings: { [weak self] in self?.window?.close(); onOpenSettings() },
+                onDone: { [weak self] in self?.window?.close() }
+            )
+            window = NSWindow(contentViewController: NSHostingController(rootView: view))
+            window.title = "Welcome to Perch"
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            self.window = window
         }
-        let view = WelcomeView(
-            onConnect: onConnect,
-            onOpenSettings: { [weak self] in self?.window?.close(); onOpenSettings() },
-            onDone: { [weak self] in self?.window?.close() }
-        )
-        let hosting = NSHostingController(rootView: view)
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "Welcome to Perch"
-        window.styleMask = [.titled, .closable]
-        window.isReleasedWhenClosed = false
-        window.center()
-        self.window = window
+        // Open on the user's current screen + Space, standalone (see WindowPlacement).
+        WindowPlacement.prepareStandalone(window)
         activation.present(window)
     }
 }

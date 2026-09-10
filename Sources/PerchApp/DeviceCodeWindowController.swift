@@ -23,19 +23,20 @@ final class DeviceCodeWindowController {
         state.status = .waiting
         copyCode()
 
-        if let window {
-            activation.present(window)
-            return
+        let window: NSWindow
+        if let existing = self.window {
+            window = existing
+        } else {
+            let view = DeviceCodeView(state: state, onCopy: { [weak self] in self?.copyCode() },
+                                      onOpen: { [weak self] in self?.openPage() })
+            window = NSWindow(contentViewController: NSHostingController(rootView: view))
+            window.title = "Connect to GitHub"
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            self.window = window
         }
-        let view = DeviceCodeView(state: state, onCopy: { [weak self] in self?.copyCode() },
-                                  onOpen: { [weak self] in self?.openPage() })
-        let hosting = NSHostingController(rootView: view)
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "Connect to GitHub"
-        window.styleMask = [.titled, .closable]
-        window.isReleasedWhenClosed = false
-        window.center()
-        self.window = window
+        // Open on the user's current screen + Space, standalone (see WindowPlacement).
+        WindowPlacement.prepareStandalone(window)
         activation.present(window)
     }
 

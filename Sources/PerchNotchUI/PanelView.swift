@@ -142,12 +142,15 @@ struct PanelView: View {
         return result
     }
 
-    /// Slide the dragged section to sit over `targetID`, live, so the other rows
-    /// open a gap as the cursor moves — the premium reorder feel.
-    private func liveMove(over targetID: String) {
-        guard let moving = draggingID, moving != targetID else { return }
+    /// Slide the dragged row to the slot the cursor is over — computed as an
+    /// ABSOLUTE index (how many OTHER rows sit, by their midpoint, above the
+    /// cursor) rather than relative to a target row. Absolute placement is
+    /// idempotent, so the row reaches the very top (index 0) and never flip-flops
+    /// between two slots as it passes a neighbour.
+    private func moveDragged(_ moving: String, toCursorY y: CGFloat) {
         let current = order.isEmpty ? items.map(\.id) : order
-        let next = PanelReorder.reordered(current, moving: moving, target: targetID)
+        let index = current.filter { $0 != moving && (geom.sections[$0]?.midY ?? .infinity) < y }.count
+        let next = PanelReorder.moved(current, moving: moving, toIndex: index)
         guard next != current else { return }
         // A snappy interactive spring so the other sections glide open a gap without
         // overshoot or lingering — the "auto-adjust" the reorder is meant to feel.
@@ -168,14 +171,11 @@ struct PanelView: View {
     private func handleReorderDrag(_ id: String, at point: CGPoint) {
         if draggingID != id { draggingID = id }
 
-        // Reorder ONLY when the cursor is squarely inside another section's band —
-        // no "closest" fallback. The fallback reordered on every pixel of movement,
-        // so holding near a boundary flip-flopped the order and stacked springs
-        // (the stutter/hang). Crossing fully into a section is a clean, single move.
-        let others = geom.sections.filter { $0.key != id }
-        if let target = others.first(where: { $0.value.minY <= point.y && point.y <= $0.value.maxY })?.key {
-            liveMove(over: target)
-        }
+        // Move to the absolute slot under the cursor (idempotent — reaches the top,
+        // never flip-flops). Replaces the old "reorder only when squarely inside a
+        // target band" rule, which couldn't target above the first row and oscillated
+        // once the dragged row reached the top.
+        moveDragged(id, toCursorY: point.y)
 
         // Auto-scroll when the cursor is within `margin` of an edge (works BOTH ways).
         let vp = geom.viewport

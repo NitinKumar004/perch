@@ -431,9 +431,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let l = model.leftPill { tints.append(l.face.tint) }
         if let r = model.rightPill { tints.append(r.face.tint) }
         tints.append(contentsOf: model.panelItems.map { $0.content.face.tint })
-        let color: NSColor? = tints.contains(.critical) ? .systemRed
+        let tint: NSColor? = tints.contains(.critical) ? .systemRed
             : (tints.contains(.warning) ? .systemYellow : nil)
-        statusItem?.button?.contentTintColor = color
+        // Swap the image, and NEVER touch contentTintColor: a neutral TEMPLATE bird
+        // is then rendered adaptively by the menu bar's own vibrancy (visible white
+        // on a dark bar, dark on a light one), and an alert bird carries its own
+        // red/amber colour. The previous code toggled contentTintColor, which —
+        // once engaged, even reset to nil — drops the template's adaptive rendering
+        // and left the bird invisible.
+        statusItem?.button?.image = Self.statusBird(tint: tint)
+    }
+
+    /// The menu-bar bird for the current state. Neutral (`tint == nil`) is a
+    /// TEMPLATE image so the menu bar colours it to contrast its own background;
+    /// an alert is drawn in its own colour so a failure stands out regardless of
+    /// the bar's appearance.
+    private static func statusBird(tint: NSColor?) -> NSImage? {
+        var config = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+        if let tint { config = config.applying(NSImage.SymbolConfiguration(paletteColors: [tint])) }
+        let image = NSImage(systemSymbolName: "bird.fill", accessibilityDescription: "Perch")?
+            .withSymbolConfiguration(config)
+        image?.isTemplate = (tint == nil)
+        return image
     }
 
     /// Pop the panel because something went red (auto-open-on-red), then let it
@@ -560,14 +579,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        // A TEMPLATE image so the menu bar renders it in the bar's own colour —
-        // white on a dark menu bar, black on a light one — instead of a fixed dark
-        // glyph that's invisible on a dark bar. The alert tint (contentTintColor,
-        // set in refreshStatusIcon) still colours it red/amber when something's
-        // wrong; nil tint falls back to this adaptive template colour.
-        let icon = NSImage(systemSymbolName: "bird.fill", accessibilityDescription: "Perch")
-        icon?.isTemplate = true
-        item.button?.image = icon
+        // Start with the neutral (template) bird — rendered in the bar's own colour
+        // (white on a dark bar, dark on a light one). refreshStatusIcon swaps in a
+        // red/amber bird on alert; see statusBird for the template-vs-palette rule.
+        item.button?.image = Self.statusBird(tint: nil)
 
         let menu = NSMenu()
         menu.addItem(withTitle: "Perch — notch HUD", action: nil, keyEquivalent: "")

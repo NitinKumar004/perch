@@ -123,8 +123,13 @@ public enum AIUsageReader {
         // Peak hour of day across all activity. Deterministic tie-break: on an
         // equal count the earlier hour wins (a Dictionary has no order, so without
         // this the "peak hour" could change between launches).
-        let peakHour = (s.hourCounts ?? [:])
+        // Explicit element type on the intermediate: without it the Swift 6.3
+        // type-checker times out inferring the tuple through the chained
+        // compactMap → max → map (it compiles fine, just slowly). Spelling the
+        // type out keeps the whole expression cheap to check. Behaviour unchanged.
+        let hourCounts: [(hour: Int, count: Int)] = (s.hourCounts ?? [:])
             .compactMap { key, count in Int(key).map { (hour: $0, count: count) } }
+        let peakHour = hourCounts
             .max { a, b in a.count != b.count ? a.count < b.count : a.hour > b.hour }
             .map(\.hour)
         // Biggest day ever by tokens (all-time).

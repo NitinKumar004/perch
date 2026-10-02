@@ -14,6 +14,10 @@ public struct PRState: Sendable, Equatable {
     /// User-chosen display toggles.
     public var showChecks: Bool
     public var showReview: Bool
+    /// Show each PR's author login in the panel row — the "whose PR is this"
+    /// signal for a reviewer. Auto-suppressed for the `.authored` queue, where the
+    /// author is always you.
+    public var showAuthor: Bool
     /// The scoped repo couldn't be read (private repo Perch isn't installed on).
     /// Distinct from a genuine zero, so the pill can say so honestly.
     public var noAccess: Bool
@@ -23,13 +27,14 @@ public struct PRState: Sendable, Equatable {
     public var queue: PRQueue
 
     public init(count: Int, items: [PRSummary], repoScope: String? = nil,
-                showChecks: Bool = true, showReview: Bool = true, noAccess: Bool = false,
-                queue: PRQueue = .reviewRequested) {
+                showChecks: Bool = true, showReview: Bool = true, showAuthor: Bool = true,
+                noAccess: Bool = false, queue: PRQueue = .reviewRequested) {
         self.count = count
         self.items = items
         self.repoScope = repoScope
         self.showChecks = showChecks
         self.showReview = showReview
+        self.showAuthor = showAuthor
         self.noAccess = noAccess
         self.queue = queue
     }
@@ -72,6 +77,7 @@ public struct GitHubPRsModule: NotchModule {
         let limit = context.int("limit", fallback: 8, minimum: 1, maximum: 25)
         let showChecks = context.bool("showChecks", fallback: true)
         let showReview = context.bool("showReview", fallback: true)
+        let showAuthor = context.bool("showAuthor", fallback: true)
 
         return AsyncStream { continuation in
             let store = VersionedStore<String, PRState>(clock: clock)
@@ -95,7 +101,7 @@ public struct GitHubPRsModule: NotchModule {
                         failures = 0
                         let state = PRState(count: observation.total, items: observation.items,
                                             repoScope: scopeLabel, showChecks: showChecks, showReview: showReview,
-                                            queue: queue)
+                                            showAuthor: showAuthor, queue: queue)
                         let accepted = await store.apply(state, forKey: key, version: observation.observedAt)
                         if accepted, let snapshot = await store.snapshot(forKey: key, ttl: 3600) {
                             continuation.yield(snapshot)
@@ -295,7 +301,11 @@ public struct GitHubPRsModule: NotchModule {
             // otherwise hide it. The note is skipped when the review label already
             // conveys comments (the "commented" / "N comments" fallback).
             let note = value.showReview ? Self.commentNote(for: pr, reviewLabel: review.label) : nil
-            let parts = [pr.repo, ci?.label, value.showReview ? review.label : nil, note].compactMap { $0 }
+            // Whose PR this is — right after the repo, so a reviewer identifies it at
+            // a glance. Suppressed on the `.authored` queue (always you) and when the
+            // author is unknown (a deleted/ghost account).
+            let author = Self.authorLabel(for: pr, queue: value.queue, show: value.showAuthor)
+            let parts = [pr.repo, author, ci?.label, value.showReview ? review.label : nil, note].compactMap { $0 }
             let tint: Tint = (ci?.tint == .critical) ? .critical : (value.showReview ? review.tint : .info)
             return DetailRow(
                 id: "pr-\(pr.repo)-\(pr.number)",
@@ -306,6 +316,15 @@ public struct GitHubPRsModule: NotchModule {
                 url: pr.url,
                 progress: ci?.progress)
         }
+    }
+
+    /// "@login" for the panel row — the "whose PR is this" signal a reviewer wants.
+    /// nil when the toggle is off, the author is unknown (deleted/ghost account), or
+    /// the queue is `.authored` (where every PR is yours, so a name is pure noise).
+    static func authorLabel(for pr: PRSummary, queue: PRQueue, show: Bool) -> String? {
+        guard show, queue != .authored,
+              let login = pr.author, !login.isEmpty else { return nil }
+        return "@\(login)"
     }
 
     /// "N comment(s)" — the one place this string is built, so the row note and

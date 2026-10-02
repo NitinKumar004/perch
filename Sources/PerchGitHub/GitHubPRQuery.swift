@@ -18,6 +18,9 @@ public struct PRSummary: Sendable, Equatable {
     public let title: String
     public let repo: String   // "owner/name"
     public let url: String
+    /// The PR author's GitHub login (nil for a deleted/ghost account). Shown in the
+    /// panel row so a reviewer can tell at a glance whose PR each one is.
+    public let author: String?
     /// GitHub `reviewDecision`: APPROVED / CHANGES_REQUESTED / REVIEW_REQUIRED / nil.
     public let reviewDecision: String?
     /// GitHub `mergeable`: MERGEABLE / CONFLICTING / UNKNOWN / nil.
@@ -66,6 +69,7 @@ public struct PRSummary: Sendable, Equatable {
     public let headByOther: Bool
 
     public init(number: Int, title: String, repo: String, url: String,
+                author: String? = nil,
                 reviewDecision: String? = nil, mergeable: String? = nil,
                 isDraft: Bool = false, checksState: String? = nil,
                 checksTotal: Int = 0, checksDone: Int = 0,
@@ -76,6 +80,7 @@ public struct PRSummary: Sendable, Equatable {
         self.title = title
         self.repo = repo
         self.url = url
+        self.author = author
         self.reviewDecision = reviewDecision
         self.mergeable = mergeable
         self.isDraft = isDraft
@@ -210,6 +215,7 @@ extension GitHubAPIClient {
             nodes {
               ... on PullRequest {
                 number title url isDraft reviewDecision mergeable
+                author { login }
                 repository { nameWithOwner }
                 reviews(first: 0) { totalCount }
                 comments(first: 0) { totalCount }
@@ -246,6 +252,7 @@ extension GitHubAPIClient {
             return PRSummary(number: number, title: title,
                              repo: node.repository?.nameWithOwner ?? "",
                              url: url,
+                             author: node.author?.login,
                              reviewDecision: node.reviewDecision,
                              mergeable: node.mergeable,
                              isDraft: node.isDraft ?? false,
@@ -284,7 +291,9 @@ struct GQLSearch: Decodable {
         let isDraft: Bool?
         let reviewDecision: String?
         let mergeable: String?
+        let author: Author?
         let repository: Repo?
+        struct Author: Decodable { let login: String? }
         let commits: Commits?
         let reviewThreads: ReviewThreads?
         let reviews: CountOnly?

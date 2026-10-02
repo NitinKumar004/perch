@@ -38,7 +38,7 @@ private struct StubGitHubHTTP: HTTPClient {
         if path.hasSuffix("/graphql") {
             let body = """
             {"data":{"search":{"issueCount":2,"nodes":[
-              {"number":10,"title":"First PR","url":"https://github.com/o/r/pull/10","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeable":"MERGEABLE","repository":{"nameWithOwner":"o/r"},"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"\(checksState)","contexts":{"totalCount":\(checksTotal),"checkRunCountsByState":[{"state":"COMPLETED","count":5}],"statusContextCountsByState":[]}}}}]}},
+              {"number":10,"title":"First PR","url":"https://github.com/o/r/pull/10","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeable":"MERGEABLE","author":{"login":"octocat"},"repository":{"nameWithOwner":"o/r"},"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"\(checksState)","contexts":{"totalCount":\(checksTotal),"checkRunCountsByState":[{"state":"COMPLETED","count":5}],"statusContextCountsByState":[]}}}}]}},
               {"number":11,"title":"Second PR","url":"https://github.com/o/r/pull/11","isDraft":false,"reviewDecision":"APPROVED","mergeable":"MERGEABLE","repository":{"nameWithOwner":"o/r"},"commits":{"nodes":[]}}
             ]}}}
             """
@@ -453,6 +453,19 @@ private func firstRender(_ module: AnyNotchModule,
     let off = githubFactory().makeModule(for: SlotBinding(module: "github.prs"))!
     let offRender = await firstRender(off, settings: ["queue": "review-requested", "showChecks": "false"]) { r in !r.detail.isEmpty && r.pill.freshness == .live }
     #expect(offRender?.detail.first?.subtitle?.contains("CI") == false)
+}
+
+@Test func e2e_prModuleHonorsShowAuthorConfig() async {
+    // showAuthor flows settings → stream → PRState → rendered row exactly like
+    // showChecks, so drive it end-to-end rather than only through detail().
+    let on = githubFactory().makeModule(for: SlotBinding(module: "github.prs"))!
+    let onRender = await firstRender(on, settings: ["queue": "review-requested", "showAuthor": "true"]) { r in !r.detail.isEmpty && r.pill.freshness == .live }
+    #expect(onRender?.detail.first?.subtitle?.contains("@octocat") == true)
+
+    // showAuthor OFF → same data, no author handle.
+    let off = githubFactory().makeModule(for: SlotBinding(module: "github.prs"))!
+    let offRender = await firstRender(off, settings: ["queue": "review-requested", "showAuthor": "false"]) { r in !r.detail.isEmpty && r.pill.freshness == .live }
+    #expect(offRender?.detail.first?.subtitle?.contains("@octocat") == false)
 }
 
 @Test func e2e_prModuleHonorsLimitConfig() async {

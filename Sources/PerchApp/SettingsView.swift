@@ -37,6 +37,13 @@ struct SettingsView: View {
     @State private var thresholds: MetricThresholds
     @State private var pacing: AlertPacing
     @State private var expanded: Set<String> = []   // collapsible section ids currently open
+    /// The panel row to scroll into view after an "Add" — set to the new row's
+    /// scroll id, consumed (and cleared) by the ScrollViewReader so a freshly
+    /// added module doesn't land off-screen below the fold.
+    @State private var panelScrollTarget: String?
+    /// The just-added panel row to outline with an accent border, so after the
+    /// scroll it's obvious WHICH row is new. Cleared on a short timer to fade out.
+    @State private var panelHighlightRow: String?
     @State private var config: LayoutConfig       // the whole layout being edited
     @State private var activePreset: String       // the preset key currently shown
     @State private var presetNameField: String    // editable name of the active preset
@@ -101,6 +108,7 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     presetSection
@@ -131,6 +139,29 @@ struct SettingsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 .padding(20)
+            }
+            // A freshly added panel row lands at the bottom of a long list; bring it
+            // into view (and briefly keep it centred) so it's ready to fill without a
+            // manual scroll. Cleared after use so the next Add re-triggers cleanly.
+            .onChange(of: panelScrollTarget) { _, target in
+                guard let target else { return }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo(target, anchor: .center)
+                }
+                withAnimation(.easeInOut(duration: 0.3)) { panelHighlightRow = target }
+                panelScrollTarget = nil
+            }
+            // Hold the border ~2.5s, then fade it out. Keyed on the row id so a rapid
+            // second Add restarts the timer on the NEW row. A newer Add cancels this
+            // task mid-sleep; we must RETURN on cancellation rather than fall through
+            // and clear the highlight the newer task just set (try? would swallow the
+            // cancellation and stomp it).
+            .task(id: panelHighlightRow) {
+                guard panelHighlightRow != nil else { return }
+                do { try await Task.sleep(nanoseconds: 2_500_000_000) }
+                catch { return }   // cancelled by a newer Add — it now owns the highlight
+                withAnimation(.easeInOut(duration: 0.5)) { panelHighlightRow = nil }
+            }
             }
             Divider()
             footer
@@ -846,6 +877,8 @@ struct SettingsView: View {
                 Spacer()
                 Button {
                     panel.append(SlotEditor(binding: nil))
+                    // Scroll the new (last) row into view — see onChange in `body`.
+                    panelScrollTarget = panelRowID(panel.count - 1)
                 } label: { Label("Add", systemImage: "plus") }
                     .controlSize(.small)
             }
@@ -880,9 +913,26 @@ struct SettingsView: View {
                 }
                 .padding(10)
                 .background(RoundedRectangle(cornerRadius: 8).fill(.quaternary.opacity(0.4)))
+                // The just-added row gets a clean accent border — nothing else: no
+                // inner fill, no glow. It fades in on Add and out on the timer, so the
+                // new row is unmistakable yet the panel stays calm and premium.
+                .overlay(RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Color.accentColor, lineWidth: 1.5)
+                    .opacity(isHighlighted(i) ? 1 : 0))
+                // A distinct id namespace so scroll-to-new-row can't collide with the
+                // integer ids other ForEachs in this view use (theme grid, accents).
+                .id(panelRowID(i))
             }
         }
     }
+
+    /// Stable scroll id for a panel row, namespaced so `proxy.scrollTo` targets the
+    /// right view — the one place this id is formed, so the `.id(…)` and the
+    /// scroll target can't drift apart.
+    private func panelRowID(_ index: Int) -> String { "panel-row-\(index)" }
+
+    /// Whether the panel row at `index` is the just-added one currently flashing.
+    private func isHighlighted(_ index: Int) -> Bool { panelHighlightRow == panelRowID(index) }
 
     /// Swap a panel row to a new index, clamped so the buttons can't over-run.
     private func move(from: Int, to: Int) {

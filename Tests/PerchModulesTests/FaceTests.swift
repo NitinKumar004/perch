@@ -33,6 +33,36 @@ private func series(_ v: Int) -> VitalSeries { VitalSeries(current: v, history: 
     #expect(noCI.subtitle?.contains("CI") == false)
 }
 
+@Test func prDetailShowsAuthorForReviewQueuesOnly() {
+    let m = GitHubPRsModule(client: .init(auth: .init(
+        flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore())))
+    let pr = PRSummary(number: 1, title: "t", repo: "o/r", url: "u", author: "octocat")
+
+    // Reviewing a PR → the author's @login is shown, right after the repo, so you
+    // can tell whose PR it is at a glance.
+    let reviewing = m.detail(for: PRState(count: 1, items: [pr], queue: .reviewRequested))[0]
+    #expect(reviewing.subtitle?.contains("@octocat") == true)
+    #expect(reviewing.subtitle?.hasPrefix("o/r · @octocat") == true)
+
+    // The "PRs I opened" queue: the author is always you, so the name is noise.
+    let authored = m.detail(for: PRState(count: 1, items: [pr], queue: .authored))[0]
+    #expect(authored.subtitle?.contains("@octocat") != true)
+
+    // Toggle off → hidden even on a review queue.
+    let hidden = m.detail(for: PRState(count: 1, items: [pr], showAuthor: false, queue: .reviewRequested))[0]
+    #expect(hidden.subtitle?.contains("@octocat") != true)
+
+    // Unknown author (deleted/ghost account) → nothing to show, no stray "@".
+    let ghost = PRSummary(number: 2, title: "t", repo: "o/r", url: "u", author: nil)
+    let ghostRow = m.detail(for: PRState(count: 1, items: [ghost], queue: .reviewRequested))[0]
+    #expect(ghostRow.subtitle?.contains("@") != true)
+
+    // An empty login string is treated the same as absent — no bare "@".
+    let blank = PRSummary(number: 3, title: "t", repo: "o/r", url: "u", author: "")
+    let blankRow = m.detail(for: PRState(count: 1, items: [blank], queue: .reviewRequested))[0]
+    #expect(blankRow.subtitle?.contains("@") != true)
+}
+
 @Test func buildDetailNamesTheExactRunAndDisplayTitle() {
     let m = GitHubBuildsModule(client: .init(auth: .init(
         flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore())), owner: "o", repo: "r")

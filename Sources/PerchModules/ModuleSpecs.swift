@@ -113,6 +113,7 @@ public enum ModuleSpecs {
                 ModuleSetting(key: "repo", label: "Repositories (optional)", placeholder: "owner/a, owner/b — blank = all repos"),
                 ModuleSetting(key: "showChecks", label: "Show CI status", placeholder: "", defaultValue: "true", kind: .toggle),
                 ModuleSetting(key: "showReview", label: "Show review status", placeholder: "", defaultValue: "true", kind: .toggle),
+                ModuleSetting(key: "showAuthor", label: "Show PR author", placeholder: "", defaultValue: "true", kind: .toggle),
                 ModuleSetting(key: "limit", label: "How many to list", placeholder: "8", defaultValue: "8"),
                 refreshSetting("90"),
              ]) { _, deps in AnyNotchModule(GitHubPRsModule(client: deps.apiClient)) },

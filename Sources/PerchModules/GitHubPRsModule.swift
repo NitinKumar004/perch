@@ -341,31 +341,104 @@ public struct GitHubPRsModule: NotchModule {
         return pluralComment(pr.commentCount)
     }
 
-    /// Map a PR's review + merge status to a label, tint, and icon.
-    static func status(for pr: PRSummary) -> (label: String, tint: Tint, symbol: String) {
-        if pr.isDraft { return ("draft", .neutral, "pencil.circle") }
-        if pr.mergeable == "CONFLICTING" { return ("conflicts", .critical, "exclamationmark.triangle.fill") }
-        // The good end-state: approved, green, no conflicts — good to land.
-        if pr.isReadyToMerge { return ("ready to merge", .good, "checkmark.seal.fill") }
+    /// The ordered classification of a PR's review + merge status — the ONE
+    /// precedence both the panel label (`status(for:)`) and the Pilot action
+    /// (`authorAction(for:)`) read, so the two can never drift.
+    enum PRSignal: Equatable {
+        case draft, conflicts, readyToMerge, approved
+        case changesToResolve, awaitingReReview, reviewRequired
+        case commented, comments, open
+    }
+
+    /// Classify a PR in the same order `status(for:)` always used: draft →
+    /// conflicts → ready → decision (approved / changes-requested{threads,none} /
+    /// review-required) → engagement (commented / N-comments / open).
+    static func classify(_ pr: PRSummary) -> PRSignal {
+        if pr.isDraft { return .draft }
+        if pr.mergeable == "CONFLICTING" { return .conflicts }
+        if pr.isReadyToMerge { return .readyToMerge }   // approved, green, no conflicts — good to land
         switch pr.reviewDecision {
-        case "APPROVED":          return ("approved", .good, "checkmark.circle.fill")
+        case "APPROVED":          return .approved
         case "CHANGES_REQUESTED":
-            // GitHub holds this decision until a reviewer re-reviews, so make it
-            // actionable: unresolved threads ⇒ your move (resolve them); none
-            // left ⇒ you've addressed them and it's waiting on the reviewer.
-            if pr.unresolvedThreads > 0 {
-                return ("\(pr.unresolvedLabel) to resolve", .critical, "text.bubble.fill")
-            }
-            return ("awaiting re-review", .warning, "clock.arrow.circlepath")
-        case "REVIEW_REQUIRED":   return ("review required", .warning, "clock.fill")
+            // Held by GitHub until re-review: unresolved threads ⇒ your move; none ⇒ awaiting reviewer.
+            return pr.unresolvedThreads > 0 ? .changesToResolve : .awaitingReReview
+        case "REVIEW_REQUIRED":   return .reviewRequired
         default:
-            // No formal decision, but say whether people have engaged instead of a
-            // bare "open": a Comment review → "commented"; conversation → "N
-            // comments". (A plain "Comment" review never sets reviewDecision, so
-            // "open" alone hides that the PR has been looked at.)
-            if pr.reviewCount > 0 { return ("commented", .info, "text.bubble.fill") }
-            if pr.commentCount > 0 { return (pluralComment(pr.commentCount), .info, "bubble.left.fill") }
-            return ("open", .info, "arrow.triangle.pull")
+            if pr.reviewCount > 0 { return .commented }
+            if pr.commentCount > 0 { return .comments }
+            return .open
+        }
+    }
+
+    /// Map a PR's review + merge status to a label, tint, and icon — derived from
+    /// `classify` so it stays the single source of PR precedence.
+    static func status(for pr: PRSummary) -> (label: String, tint: Tint, symbol: String) {
+        switch classify(pr) {
+        case .draft:            return ("draft", .neutral, "pencil.circle")
+        case .conflicts:        return ("conflicts", .critical, "exclamationmark.triangle.fill")
+        case .readyToMerge:     return ("ready to merge", .good, "checkmark.seal.fill")
+        case .approved:         return ("approved", .good, "checkmark.circle.fill")
+        case .changesToResolve: return ("\(pr.unresolvedLabel) to resolve", .critical, "text.bubble.fill")
+        case .awaitingReReview: return ("awaiting re-review", .warning, "clock.arrow.circlepath")
+        case .reviewRequired:   return ("review required", .warning, "clock.fill")
+        // A plain Comment review never sets reviewDecision, so "open" alone would
+        // hide that the PR has been looked at — distinguish engagement.
+        case .commented:        return ("commented", .info, "text.bubble.fill")
+        case .comments:         return (pluralComment(pr.commentCount), .info, "bubble.left.fill")
+        case .open:             return ("open", .info, "arrow.triangle.pull")
+        }
+    }
+
+    /// Pilot actions for the PR queue. Author queues yield one *author* action per
+    /// PR (merge/resolve/your-move/CI); the review-requested queue yields "review"
+    /// actions. Other queues and no-access yield nothing (so we never suggest
+    /// "Merge" on a PR you don't own).
+    public func actions(for value: PRState, context: ModuleContext) -> [PilotAction] {
+        guard !value.noAccess else { return [] }
+        switch value.queue {
+        case .authored:
+            return value.items.compactMap { Self.authorAction(for: $0) }
+        case .reviewRequested:
+            return value.items.map { pr in
+                PilotAction(id: "pr-review:\(pr.repo)#\(pr.number)",
+                            title: "Review #\(pr.number)",
+                            subtitle: "\(pr.repo) · \(pr.title)",
+                            symbolName: "eye", tint: .warning, priority: .reviewAsked, url: pr.url)
+            }
+        case .reviewing, .reviewedBy:
+            return []
+        }
+    }
+
+    /// At most ONE author action per PR, in the same precedence as `classify`, with
+    /// CI-failing layered on top (it is not a `status` branch, so `status` stays
+    /// untouched): conflicts → your-move → merge → CI-failing → nothing.
+    static func authorAction(for pr: PRSummary) -> PilotAction? {
+        switch classify(pr) {
+        case .draft:
+            return nil   // don't nag about a draft
+        case .conflicts:
+            return PilotAction(id: "pr-conflicts:\(pr.repo)#\(pr.number)", title: "Resolve conflicts #\(pr.number)",
+                               subtitle: "\(pr.repo) · \(pr.title)", symbolName: "exclamationmark.triangle.fill",
+                               tint: .critical, priority: .conflicts, url: pr.url)
+        case .changesToResolve:
+            return PilotAction(id: "pr-threads:\(pr.repo)#\(pr.number)", title: "\(pr.unresolvedLabel) to resolve #\(pr.number)",
+                               subtitle: "\(pr.repo) · \(pr.title)", symbolName: "text.bubble.fill",
+                               tint: .critical, priority: .yourMove, url: pr.url)
+        case .readyToMerge:
+            return PilotAction(id: "pr-merge:\(pr.repo)#\(pr.number)", title: "Merge #\(pr.number)",
+                               subtitle: "\(pr.repo) · approved · CI green", symbolName: "checkmark.seal.fill",
+                               tint: .good, priority: .readyToMerge, url: pr.url)
+        case .approved, .awaitingReReview, .reviewRequired, .commented, .comments, .open:
+            // Nothing structural to do as the author — but a red pipeline is: offer
+            // "CI failing" here (it's not a `status` precedence branch, so layering it
+            // on doesn't change the panel label). Everything else is nil.
+            if pr.checksState == "FAILURE" || pr.checksState == "ERROR" {
+                return PilotAction(id: "pr-ci:\(pr.repo)#\(pr.number)", title: "CI failing #\(pr.number)",
+                                   subtitle: "\(pr.repo) · \(pr.title)", symbolName: "xmark.octagon.fill",
+                                   tint: .critical, priority: .ciFailingPR, url: pr.url)
+            }
+            return nil
         }
     }
 

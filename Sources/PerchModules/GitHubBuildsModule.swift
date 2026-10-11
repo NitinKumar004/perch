@@ -273,6 +273,24 @@ public struct GitHubBuildsModule: NotchModule {
             url: value.url.isEmpty ? nil : value.url)
     }
 
+    /// Pilot action: a failing build is something to look at. Priority is higher
+    /// when a *specific* branch is watched (your main build is broken) than when
+    /// watching "any branch" (`*`/blank). `BuildInfo.branch` is the run's branch, so
+    /// the watched-branch decision uses the module's own configured `branch`. The id
+    /// uses owner/repo (BuildInfo has no repo field) so it's stable + distinct.
+    public func actions(for value: BuildInfo, context: ModuleContext) -> [PilotAction] {
+        guard value.state == .failing else { return [] }
+        let watchesSpecificBranch = !branch.isEmpty && branch != "*"
+        let priority: PilotPriority = watchesSpecificBranch ? .mainBroken : .ciFailingPR
+        let where_ = value.branch.isEmpty ? "" : " on \(value.branch)"
+        return [PilotAction(
+            id: "build-failing:\(owner)/\(repo):\(value.shortSHA.isEmpty ? value.url : value.shortSHA)",
+            title: "CI failing\(where_)",
+            subtitle: "\(owner)/\(repo) · \(value.workflowName.isEmpty ? "CI" : value.workflowName)",
+            symbolName: "xmark.octagon.fill", tint: .critical, priority: priority,
+            url: value.url.isEmpty ? nil : value.url)]
+    }
+
     /// A 401 (revoked/expired token) won't fix itself by retrying — back off hard.
     static func isAuthError(_ error: Error) -> Bool {
         if case GitHubAuthError.http(let status) = error, status == 401 { return true }

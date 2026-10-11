@@ -147,6 +147,67 @@ public enum ModuleSpecs {
             return AnyNotchModule(CombinedModule(members: members))
         },
 
+        spec(PilotModule.self, category: .github, tag: "your next move",
+             settings: PilotModule.sources().map { src in
+                ModuleSetting(key: src.key, label: src.label, placeholder: "",
+                              defaultValue: src.on ? "true" : "false", kind: .toggle)
+             } + [
+                ModuleSetting(key: "repo", label: "Repository (owner/name)", placeholder: "owner/name — required for CI builds"),
+                ModuleSetting(key: "branch", label: "Branch", placeholder: "main — or * for any", defaultValue: "main"),
+                ModuleSetting(key: "url", label: "Deploy URL (optional)", placeholder: "https://…/health"),
+                ModuleSetting(key: "limit", label: "PRs per queue", placeholder: "8", defaultValue: "8"),
+                refreshSetting("90"),
+             ]) { binding, deps in
+            let ctx = ModuleContext(settings: binding.settings)   // tolerant bool parse, shared with contextLabel
+            let s = binding.settings
+            let repoRaw = s["repo"] ?? "", branch = s["branch"] ?? "main"
+            let url = s["url"] ?? "", limit = s["limit"] ?? "", refresh = s["refreshSeconds"] ?? ""
+            // PRs accept a comma/space list; Builds needs a single owner/name — take
+            // the first VALID repo so a list can't corrupt the build API call.
+            let buildRepo = parseRepoList(repoRaw).first
+            func withRefresh(_ base: [String: String]) -> [String: String] {
+                var m = base
+                if !refresh.isEmpty { m["refreshSeconds"] = refresh }
+                return m
+            }
+            var members: [PilotModule.Member] = []
+            var unconfigured: [String] = []
+            func add(_ id: String, _ settings: [String: String], _ name: String) {
+                if let mod = ModuleSpecs.make(SlotBinding(module: id, settings: settings), deps) {
+                    members.append(PilotModule.Member(module: mod, settings: settings, name: name))
+                }
+            }
+            func toggle(_ key: String) -> Bool {
+                let def = PilotModule.sources().first { $0.key == key }?.on ?? false
+                return ctx.bool(key, fallback: def)
+            }
+            if toggle("incMyPRs") {
+                var ps = withRefresh(["queue": "author", "showChecks": "true"])
+                if !repoRaw.isEmpty { ps["repo"] = repoRaw }
+                if !limit.isEmpty { ps["limit"] = limit }
+                add("github.prs", ps, "My PRs")
+            }
+            if toggle("incReviews") {
+                var ps = withRefresh(["queue": "review-requested"])
+                if !repoRaw.isEmpty { ps["repo"] = repoRaw }
+                if !limit.isEmpty { ps["limit"] = limit }
+                add("github.prs", ps, "Reviews")
+            }
+            // Builds/Deploy need a repo / URL. When enabled but unset, surface them as
+            // *unconfigured* (so Pilot admits CI/deploy isn't watched) rather than
+            // silently dropping them and reporting a false "All clear".
+            if toggle("incBuilds") {
+                if let br = buildRepo { add("github.builds", withRefresh(["repo": br, "branch": branch]), "Build") }
+                else { unconfigured.append("Build") }
+            }
+            if toggle("incDeploy") {
+                if !url.isEmpty { add("deploy.health", withRefresh(["url": url]), "Deploy") }
+                else { unconfigured.append("Deploy") }
+            }
+            guard !members.isEmpty else { return nil }
+            return AnyNotchModule(PilotModule(members: members, unconfigured: unconfigured))
+        },
+
         spec(AIUsageModule.self, category: .local, tag: "AI token usage",
              settings: [
                 ModuleSetting(key: "dir", label: "Data folder", placeholder: "~/.claude", defaultValue: "~/.claude"),

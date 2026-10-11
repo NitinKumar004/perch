@@ -322,6 +322,61 @@ private func series(_ v: Int) -> VitalSeries { VitalSeries(current: v, history: 
     #expect(m.face(for: .running, in: .leftPill).tint == .info)
 }
 
+@Test func prActionsAreQueueAwareAndOnePerPR() {
+    let m = GitHubPRsModule(client: .init(auth: .init(
+        flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore())))
+    func pr(_ n: Int, review: String? = nil, mergeable: String? = "MERGEABLE",
+            draft: Bool = false, checks: String? = nil, unresolved: Int = 0) -> PRSummary {
+        PRSummary(number: n, title: "t\(n)", repo: "o/r", url: "https://x/pr/\(n)",
+                  reviewDecision: review, mergeable: mergeable, isDraft: draft,
+                  checksState: checks, unresolvedThreads: unresolved)
+    }
+    // Authored queue → at most ONE author action per PR, at the right priority.
+    let authored = PRState(count: 5, items: [
+        pr(1, review: "APPROVED", checks: "SUCCESS"),        // ready to merge
+        pr(2, mergeable: "CONFLICTING"),                     // conflicts
+        pr(3, review: "CHANGES_REQUESTED", unresolved: 2),   // your move
+        pr(4, review: "APPROVED", checks: "FAILURE"),        // approved but CI failing
+        pr(5, draft: true),                                  // draft → nothing
+    ], queue: .authored)
+    let acts = m.actions(for: authored, context: ModuleContext())
+    let prio = Dictionary(uniqueKeysWithValues: acts.map { ($0.id, $0.priority) })
+    #expect(prio["pr-merge:o/r#1"] == .readyToMerge)
+    #expect(prio["pr-conflicts:o/r#2"] == .conflicts)
+    #expect(prio["pr-threads:o/r#3"] == .yourMove)
+    #expect(prio["pr-ci:o/r#4"] == .ciFailingPR)
+    #expect(acts.allSatisfy { !$0.id.contains("#5") })                  // draft → no action
+    #expect(acts.count == 4)                                            // one per actionable PR
+    #expect(acts.first { $0.id == "pr-merge:o/r#1" }?.url == "https://x/pr/1")
+
+    // Review-requested queue → review actions, never a "merge".
+    let reviews = m.actions(for: PRState(count: 1, items: [pr(9)], queue: .reviewRequested), context: ModuleContext())
+    #expect(reviews.first?.priority == .reviewAsked)
+    #expect(reviews.first?.id == "pr-review:o/r#9")
+
+    // Other queues / no-access → nothing (never suggest acting on a PR you don't own).
+    #expect(m.actions(for: PRState(count: 1, items: [pr(9)], queue: .reviewing), context: ModuleContext()).isEmpty)
+    #expect(m.actions(for: PRState(count: 0, items: [], repoScope: "o/r", noAccess: true, queue: .authored),
+                      context: ModuleContext()).isEmpty)
+}
+
+@Test func buildActionsFireOnlyWhenFailing() {
+    func client() -> GitHubAPIClient {
+        .init(auth: .init(flow: .init(http: NoopHTTP(), clientID: "x"), store: NoopStore()))
+    }
+    func info(_ s: BuildState) -> BuildInfo {
+        BuildInfo(state: s, workflowName: "CI", branch: "main", shortSHA: "abc",
+                  durationText: "1m", url: "https://x/run/1")
+    }
+    let watched = GitHubBuildsModule(client: client(), owner: "o", repo: "r", branch: "main")
+    let anyBranch = GitHubBuildsModule(client: client(), owner: "o", repo: "r", branch: "*")
+    // A specific watched branch failing ranks as "main broken"; "any branch" is lower.
+    #expect(watched.actions(for: info(.failing), context: ModuleContext()).first?.priority == .mainBroken)
+    #expect(anyBranch.actions(for: info(.failing), context: ModuleContext()).first?.priority == .ciFailingPR)
+    #expect(watched.actions(for: info(.passing), context: ModuleContext()).isEmpty)
+    #expect(watched.actions(for: info(.failing), context: ModuleContext()).first?.url == "https://x/run/1")
+}
+
 // Minimal doubles so the PR module can be constructed without a network.
 import PerchGitHub
 private struct NoopHTTP: HTTPClient {

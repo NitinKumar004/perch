@@ -100,11 +100,16 @@ public struct ModuleRender: Equatable, Sendable {
     /// scoped to, or the host it pings), shown under the panel row's title so
     /// the user always knows the source.
     public let contextLabel: String?
+    /// Suggested next actions this update implies, for the Pilot aggregator to
+    /// rank. Empty for modules that don't override `actions(for:context:)`.
+    public let actions: [PilotAction]
 
-    public init(pill: PillContent, detail: [DetailRow], alert: ModuleAlert? = nil, contextLabel: String? = nil) {
+    public init(pill: PillContent, detail: [DetailRow], alert: ModuleAlert? = nil,
+                contextLabel: String? = nil, actions: [PilotAction] = []) {
         self.pill = pill
         self.detail = detail
         self.alert = alert
         self.contextLabel = contextLabel
+        self.actions = actions
     }
 }

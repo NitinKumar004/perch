@@ -91,4 +91,24 @@ public struct DeployModule: NotchModule {
             return PillFace(text: "…", symbolName: "questionmark.circle", tint: .neutral, tooltip: "Checking")
         }
     }
+
+    /// Pilot actions: a down or degraded endpoint is something to go look at. The
+    /// URL lives in settings (not in `HealthState`), so this reads it from context.
+    public func actions(for value: HealthState, context: ModuleContext) -> [PilotAction] {
+        let urlString = context.settings["url"] ?? ""
+        guard !urlString.isEmpty else { return [] }
+        let host = URL(string: urlString)?.host ?? urlString
+        switch value {
+        case .down:
+            return [PilotAction(id: "deploy-down:\(urlString)", title: "Deploy down",
+                                subtitle: "\(host) — unreachable", symbolName: "xmark.octagon.fill",
+                                tint: .critical, priority: .prodDown, url: urlString)]
+        case .degraded:
+            return [PilotAction(id: "deploy-degraded:\(urlString)", title: "Deploy degraded",
+                                subtitle: "\(host) — non-2xx", symbolName: "exclamationmark.triangle.fill",
+                                tint: .warning, priority: .degraded, url: urlString)]
+        case .healthy, .unknown:
+            return []
+        }
+    }
 }

@@ -39,10 +39,19 @@ public protocol NotchModule: Sendable {
     /// …), shown under the panel row title. Receives the same context (settings)
     /// as `stream`, so it can name the configured repo/URL. Defaults to nil.
     func contextLabel(_ context: ModuleContext) -> String?
+
+    /// Suggested next actions derived purely from this state (and the module's
+    /// settings), for the Pilot aggregator to rank and surface. Defaults to empty —
+    /// a module overrides it only when its state implies something to *do* (merge a
+    /// ready PR, look at a failing run, check a down deploy). Takes `context` so a
+    /// module can read its own settings (e.g. a URL that lives there, not in State),
+    /// mirroring `contextLabel`.
+    func actions(for value: State, context: ModuleContext) -> [PilotAction]
 }
 
 public extension NotchModule {
     func detail(for value: State) -> [DetailRow] { [] }
     func notification(for value: State, previous: State?) -> ModuleAlert? { nil }
     func contextLabel(_ context: ModuleContext) -> String? { nil }
+    func actions(for value: State, context: ModuleContext) -> [PilotAction] { [] }
 }

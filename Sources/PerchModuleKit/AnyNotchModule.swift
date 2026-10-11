@@ -28,6 +28,7 @@ public struct AnyNotchModule: Sendable {
                         let face = module.face(for: snapshot.value, in: slot)
                         let pill = PillContent(face: face, freshness: snapshot.freshness, asOf: snapshot.asOf)
                         let detail = module.detail(for: snapshot.value)
+                        let actions = module.actions(for: snapshot.value, context: context)
                         var alert: ModuleAlert?
                         if snapshot.freshness.isTrustworthy {   // a real (live) observation
                             if let previousLive {
@@ -35,7 +36,8 @@ public struct AnyNotchModule: Sendable {
                             }
                             previousLive = snapshot.value
                         }
-                        continuation.yield(ModuleRender(pill: pill, detail: detail, alert: alert, contextLabel: contextLabel))
+                        continuation.yield(ModuleRender(pill: pill, detail: detail, alert: alert,
+                                                        contextLabel: contextLabel, actions: actions))
                     }
                     continuation.finish()
                 }

@@ -468,6 +468,25 @@ private func firstRender(_ module: AnyNotchModule,
     #expect(offRender?.detail.first?.subtitle?.contains("@octocat") == false)
 }
 
+@Test func e2e_pilotFactoryResolvesMembersFromToggles() async {
+    // Defaults build at least one member (PRs work with no repo) → resolves.
+    #expect(githubFactory().makeModule(for: SlotBinding(module: "pilot.actions")) != nil)
+    // Every source toggled off → no members → nil (matches Combined).
+    let allOff = SlotBinding(module: "pilot.actions", settings: [
+        "incMyPRs": "false", "incReviews": "false", "incBuilds": "false", "incDeploy": "false"])
+    #expect(githubFactory().makeModule(for: allOff) == nil)
+}
+
+@Test func e2e_pilotStreamsAndReachesLive() async {
+    // Pilot composes its member(s), polls, and reaches a live aggregate render.
+    let m = githubFactory().makeModule(for: SlotBinding(module: "pilot.actions",
+                                                        settings: ["incReviews": "false"]))!
+    let render = await firstRender(m) { $0.pill.freshness == .live }
+    #expect(render != nil)
+    // Live → the pill is no longer the "Checking…" seed.
+    #expect(render?.pill.face.text != "Checking…")
+}
+
 @Test func e2e_prModuleHonorsLimitConfig() async {
     let m = githubFactory().makeModule(for: SlotBinding(module: "github.prs"))!
     let render = await firstRender(m, settings: ["queue": "review-requested", "limit": "1"]) { r in !r.detail.isEmpty && r.pill.freshness == .live }
